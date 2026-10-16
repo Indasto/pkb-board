@@ -141,6 +141,8 @@ main { padding: 16px; max-width: 1600px; margin: 0 auto; }
 .chip { background: var(--surface-2); padding: 0 7px; border-radius: 99px; color: var(--text); font-weight: 500; }
 .badge { background: var(--badge-bg); color: var(--badge-text); padding: 0 7px; border-radius: 99px; font-weight: 700; }
 .time { margin-left: auto; font-variant-numeric: tabular-nums; }
+.due { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.due.soon { color: var(--danger); }
 .archive-toggle { margin-top: 14px; background: none; border: 0; color: var(--muted); font-size: 13px; text-decoration: underline; padding: 4px 0; }
 
 /* detail sheet */
@@ -304,7 +306,7 @@ const STATUSES = [
 const BY_KEY = Object.fromEntries(STATUSES.map((s) => [s.key, s]));
 const BY_DIR = Object.fromEntries(STATUSES.map((s) => [s.dir, s]));
 const DONE_LIMIT = 30;
-const META_ORDER = ['id', 'title', 'status', 'project', 'owner', 'assignee', 'created', 'updated'];
+const META_ORDER = ['id', 'title', 'status', 'project', 'owner', 'assignee', 'due', 'created', 'updated'];
 const LOCAL = window.PKB_LOCAL || null;
 
 const store = {
@@ -351,6 +353,20 @@ function relTime(s) {
   if (min < 60 * 24) return `${Math.floor(min / 60)}時間前`;
   if (min < 60 * 24 * 7) return `${Math.floor(min / 1440)}日前`;
   return `${+m[2]}/${+m[3]}`;
+}
+// 期限: 残り日数（過去は負）。形式が不正なら null
+function daysLeft(due) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(due || '');
+  if (!m) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(+m[1], m[2] - 1, +m[3]) - today) / 86400000);
+}
+function dueLabel(due) {
+  const d = daysLeft(due);
+  if (d === null) return '';
+  const md = due.slice(5).replace(/^0/, '').replace('-0', '/').replace('-', '/');
+  const rel = d < 0 ? `${-d}日超過` : d === 0 ? '今日' : d === 1 ? '明日' : `あと${d}日`;
+  return `〆${md}（${rel}）`;
 }
 function b64decode(b64) {
   const bin = atob(b64.replace(/\s/g, ''));
@@ -668,6 +684,7 @@ function cardHtml(t) {
     ${sn ? `<div class="card-snippet">${esc(sn)}</div>` : ''}
     <div class="card-meta">
       ${t.pending ? `<span class="badge">📩 指示あり</span>` : ''}
+      ${t.meta.due && t.status !== 'done' ? `<span class="due${daysLeft(t.meta.due) <= 2 ? ' soon' : ''}">${esc(dueLabel(t.meta.due))}</span>` : ''}
       ${t.meta.project ? `<span class="chip">#${esc(t.meta.project)}</span>` : ''}
       ${who ? `<span>${esc(who)}</span>` : ''}
       <span class="time" title="${esc(t.meta.updated)}">${esc(relTime(t.meta.updated))}</span>
@@ -685,7 +702,9 @@ function renderBoard() {
     let ts = vt.filter((t) => t.status === s.key);
     const total = ts.length;
     if (s.key === 'done') ts = ts.slice(0, DONE_LIMIT);
-    if (s.key !== 'done') ts.sort((a, b) => (b.pending - a.pending) || 0);
+    // 指示あり → 期限が近い順 → 更新が新しい順
+    const dueKey = (t) => daysLeft(t.meta.due) ?? Infinity;
+    if (s.key !== 'done') ts.sort((a, b) => (b.pending - a.pending) || (dueKey(a) - dueKey(b)) || 0);
     return `<section class="col ${s.key}${state.tab === s.key ? ' active' : ''}" style="--c:var(${s.color})">
       <div class="col-head"><span class="dot"></span>${esc(s.label)}${s.sub ? `<span class="col-sub">${esc(s.sub)}</span>` : ''}<span class="count">${total}</span></div>
       <div class="cards">${ts.length ? ts.map(cardHtml).join('') : `<div class="empty">${s.key === 'review' ? '確認待ちはありません' : 'なし'}</div>`}${s.key === 'done' && total > DONE_LIMIT ? `<div class="empty">ほか ${total - DONE_LIMIT} 件</div>` : ''}</div>
@@ -734,6 +753,7 @@ function renderSheet() {
         ${t.meta.project ? `<span class="chip">#${esc(t.meta.project)}</span>` : ''}
         ${t.meta.owner ? `<span>担当 @${esc(t.meta.owner)}</span>` : ''}
         ${t.meta.assignee ? `<span>依頼先 →${esc(t.meta.assignee)}</span>` : ''}
+        ${t.meta.due ? `<span class="due${daysLeft(t.meta.due) <= 2 && t.status !== 'done' ? ' soon' : ''}">期限 ${esc(t.meta.due)}${t.status !== 'done' ? ' ' + esc(dueLabel(t.meta.due).replace(/^〆[^（]*/, '')) : ''}</span>` : ''}
         <span>更新 ${esc(t.meta.updated || '')}</span>
         <span>ID ${esc(t.meta.id)}</span>
       </div>
