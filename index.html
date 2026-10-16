@@ -380,6 +380,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 @media(max-width:600px) { .mail-overview,.mail-card { padding:15px; } .mail-account { flex:1; } .mail-controls .select { flex:1; } }
 
 .note-card{border-top:1px solid var(--border);padding:16px 0;overflow-wrap:anywhere}.note-body{white-space:pre-wrap;margin:10px 0;line-height:1.6}.views{flex-wrap:wrap} #newMode{margin-bottom:6px}
+.vault-gate{max-width:560px;margin:24px auto}.vault-gate textarea,.vault-gate input{width:100%;min-width:0}.vault-gate .btn{margin:8px 6px 8px 0}.vault-gate code{overflow-wrap:anywhere}.finance-note{overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -455,7 +456,8 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 <dialog id="financeDialog"></dialog>
 <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
 
-<script>
+<script type="module">
+import * as VC from './vault-crypto.mjs';
 'use strict';
 // ===================== 設定 =====================
 const STATUSES = [
@@ -1229,19 +1231,48 @@ $('#scheduleView').addEventListener('change', (e) => {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.loaded && !state.busy) load({ quiet: true }); });
 setInterval(() => { if (document.visibilityState === 'visible' && state.loaded && !state.busy && !$('#instructText')?.value && !$('#newText').value && !$('.date-edit[open]')) load({ quiet: true }); }, 60000);
 
-// Finance data lives only in memory and is never sent to GitHub or localStorage.
+// Remote Finance: only device registration is persisted; unlocked data stays in memory.
+const vaultTest=new URLSearchParams(location.search).get('vault-test')==='1';
+const FINANCE_LOCAL=LOCAL&&!vaultTest;
+const vaultBranch=vaultTest?'vault-test':'vault',vaultInbox=vaultTest?'vault-inbox-test':'vault-inbox';
+const vault={device:null,key:null,header:null,error:'',ready:false,busy:false,lastActivity:Date.now(),session:0,pending:[]};
+const vaultDBName='pkb-vault-device-v1:'+cfg.repo+':'+vaultBranch;
+function deviceDB(action,value){return new Promise((resolve,reject)=>{const r=indexedDB.open(vaultDBName,1);r.onupgradeneeded=()=>r.result.createObjectStore('device');r.onerror=()=>reject(Error('端末キーを保存できません。プライベートブラウズの設定を確認してください。'));r.onsuccess=()=>{const db=r.result,tx=db.transaction('device',action==='get'?'readonly':'readwrite'),s=tx.objectStore('device'),op=action==='get'?s.get('current'):action==='delete'?s.delete('current'):s.put(value,'current');let result;op.onsuccess=()=>result=op.result;tx.oncomplete=()=>{db.close();resolve(result);};tx.onerror=()=>{db.close();reject(Error('端末キーの保存に失敗しました。'));};};});}
+async function vaultTree(branch){const base=`/repos/${owner}/${name}`;let ref;try{ref=await gh(base+'/git/ref/heads/'+branch);}catch(e){if(e.status===404)return{head:null,files:{}};throw e;}const t=await gh(base+'/git/trees/'+ref.object.sha+'?recursive=1');if(t.truncated)throw Error('Vault too large');return{head:ref.object.sha,files:Object.fromEntries(t.tree.filter(e=>e.type==='blob').map(e=>[e.path,e.sha]))};}
+async function vaultBlob(sha){if(!sha)throw Error('まだ同期されていません。メインPCでvault syncを実行してください。');const r=await gh(`/repos/${owner}/${name}/git/blobs/${sha}`);return JSON.parse(b64decode(r.content));}
+async function vaultSnapshot(){const t=await vaultTree(vaultBranch);if(!t.head)throw Error('メインPCでinitとadd-deviceを実行してください。');return{...t,header:await vaultBlob(t.files['keys.json'])};}
+async function vaultInboxCommit(build){const base=`/repos/${owner}/${name}`;for(let n=0;n<5;n++){const cur=await vaultTree(vaultInbox),changes=await build(cur);if(!changes.length)return;const old=cur.head?await gh(base+'/git/commits/'+cur.head):null;const tree=await gh(base+'/git/trees',{method:'POST',body:{...(old?{base_tree:old.tree.sha}:{}),tree:changes.map(c=>({path:c.path,mode:'100644',type:'blob',content:c.content}))}});const c=await gh(base+'/git/commits',{method:'POST',body:{message:'vault: encrypted device submission',tree:tree.sha,parents:cur.head?[cur.head]:[]}});try{if(cur.head)await gh(base+'/git/refs/heads/'+vaultInbox,{method:'PATCH',body:{sha:c.sha,force:false}});else await gh(base+'/git/refs',{method:'POST',body:{ref:'refs/heads/'+vaultInbox,sha:c.sha}});return;}catch(e){if(![409,422].includes(e.status)||n===4)throw e;}}}
+function lockVault(message=''){vault.session++;vault.key=null;vault.header=null;finance.data=null;finance.loading=false;vault.error=message;const d=$('#financeDialog');if(d.open)d.close();d.innerHTML='';$('#financeView').replaceChildren();if(state.view==='finance')renderFinance();}
+async function initVaultDevice(){if(FINANCE_LOCAL||vault.ready)return;vault.ready=true;try{vault.device=await deviceDB('get');}catch(e){vault.error=e.message;}if(state.view==='finance')renderFinance();}
+function renderVaultGate(){const el=$('#financeView');el.innerHTML=`<section class="panel vault-gate"><h2>Finance · Encrypted vault</h2><p>財務データは登録した端末で、合言葉を入力すると開けます。</p>${vault.error?`<p class="error-box" role="alert">${esc(vault.error)}</p>`:''}${!LOCAL&&!cfg.token?'<p>先にGitHubとの接続を設定してください。</p><button class="btn" data-vault-settings>Connection settings</button>':vault.device?'<form id="vaultUnlock"><label class="field"><span>Passphrase</span><input type="password" name="passphrase" autocomplete="off" required aria-label="Passphrase"></label><button class="btn primary" '+(vault.busy?'disabled':'')+'>Unlock</button></form><button class="btn" data-vault-forget>Forget this device</button>':'<form id="vaultRegister"><label class="field"><span>Registration code</span><textarea name="code" rows="4" autocomplete="off" required aria-label="Registration code"></textarea></label><button class="btn primary" '+(vault.busy?'disabled':'')+'>Register this device</button></form><p>メインPCで <code>node scripts/finance/vault.mjs add-device phone</code> を実行し、表示された登録コードをここへ貼り付けてください。登録コードは共有しないでください。</p>'}<p class="finance-note">合言葉は保存しません。5分間操作がないと自動ロックします。ブラウザを切り替えた場合もロックします。</p></section>`;initVaultDevice();}
+async function registerVault(code){const device=VC.registration(code,cfg.repo),snapshot=await vaultSnapshot(),entry=snapshot.header.devices?.find(d=>d.id===device.id);if(!entry||entry.claimHash!==await VC.digest(VC.unb64(device.claim)))throw Error('登録コードが無効か、端末が無効化されています。');await vaultInboxCommit(cur=>{const path='devices/'+device.id+'.used';if(cur.files[path])throw Error('この登録コードは使用済みです。メインPCで新しい端末を追加してください。');return[{path,content:JSON.stringify({v:1})}];});const saved={id:device.id,secret:device.secret};await deviceDB('put',saved);vault.device=saved;}
+async function unlockVault(pass){const session=vault.session,snapshot=await vaultSnapshot(),key=await VC.unlock(pass,vault.device,snapshot.header),data=VC.json(await VC.open(key,await vaultBlob(snapshot.files['finance.enc']),'finance','finance.enc',snapshot.header.epoch));if(session!==vault.session)return;if(!Array.isArray(data.transactions)||!Array.isArray(data.recurring)||!Array.isArray(data.bills))throw Error('Invalid Finance snapshot');vault.key=key;vault.header=snapshot.header;vault.files=snapshot.files;vault.head=snapshot.head;finance.data=data;vault.lastActivity=Date.now();vault.error='';}
+async function refreshVault(){if(!vault.key){renderFinance();return;}const session=vault.session;finance.loading=true;finance.error='';try{const snapshot=await vaultSnapshot();if(snapshot.header.epoch!==vault.header.epoch||!snapshot.header.devices.some(d=>d.id===vault.device.id)){lockVault('鍵が更新されました。合言葉で解錠し直してください。');return;}const data=VC.json(await VC.open(vault.key,await vaultBlob(snapshot.files['finance.enc']),'finance','finance.enc',snapshot.header.epoch));if(session!==vault.session)return;finance.data=data;vault.header=snapshot.header;vault.files=snapshot.files;vault.head=snapshot.head;vault.pending=vault.pending.filter(id=>!data.applied.includes(id));}catch(e){finance.error=e.message;}finally{if(session===vault.session){finance.loading=false;if(state.view==='finance')renderFinance();}}}
+async function submitVault(payload){if(!vault.key)throw Error('先にUnlockしてください。');const session=vault.session,snapshot=await vaultSnapshot();if(snapshot.header.epoch!==vault.header.epoch||!snapshot.header.devices.some(d=>d.id===vault.device.id)){lockVault('鍵が更新されました。解錠し直してください。');throw Error('Vault changed');}const itemId=crypto.randomUUID(),path=`inbox/${vault.device.id}/${itemId}.enc`;const envelope=await VC.seal(vault.key,VC.bytes(JSON.stringify({v:1,itemId,...payload})),'inbox',path,vault.header.epoch),signed=await VC.authenticate(vault.device.secret,path,envelope);if(session!==vault.session)throw Error('Vault locked');await vaultInboxCommit(cur=>{if(cur.files[path])throw Error('Duplicate inbox item');return[{path,content:JSON.stringify(signed)}];});if(session===vault.session){vault.pending.push(itemId);toast('Encrypted · メインPCが同期すると反映されます');}return{queued:true};}
+async function remoteFinanceRequest(endpoint,options={}){if(endpoint==='state')return refreshVault();const p=JSON.parse(options.body),allowed=['date','amount','direction','book','category','counterparty','method','status','memo'],fields=Object.fromEntries(allowed.filter(k=>k in p).map(k=>[k,p[k]]));if(endpoint==='receipts')return submitVault({operation:'receipt',book:p.book,base64:p.base64});if(endpoint==='transactions')return submitVault({operation:'create',row:fields});if(/^transactions\/[a-zA-Z0-9_-]{1,100}$/.test(endpoint))return submitVault({operation:'edit',id:endpoint.split('/')[1],revision:p.revision,patch:fields});throw Error('Unsupported Finance operation');}
+async function resizedReceipt(file){const image=await createImageBitmap(file);try{if(image.width*image.height>50000000)throw Error('画像が大きすぎます');const scale=Math.min(1,2000/Math.max(image.width,image.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.82));if(!blob||blob.size>8*1024*1024)throw Error('圧縮後の画像は8MB以下にしてください');return VC.b64(new Uint8Array(await blob.arrayBuffer()));}finally{image.close();}}
+async function remoteReceipt(ref){if(!vault.key)throw Error('Vault locked');const session=vault.session,path=finance.data.receiptMap[ref];if(!path||!/^receipts\/[a-f0-9]{64}\.enc$/.test(path))throw Error('Receipt not found');const bytes=await VC.open(vault.key,await vaultBlob(vault.files[path]),'receipt',path,vault.header.epoch);if(session!==vault.session)throw Error('Vault locked');const ext=ref.split('.').pop();return new Blob([bytes],{type:'image/'+(ext==='jpg'?'jpeg':ext)});}
+$('#financeView').addEventListener('click',async e=>{try{if(e.target.closest('[data-vault-settings]'))openSettings();if(e.target.closest('[data-vault-lock]'))lockVault();if(e.target.closest('[data-vault-forget]')){await deviceDB('delete');vault.device=null;lockVault();}const b=e.target.closest('[data-vault-sync]');if(b){b.disabled=true;try{const r=await fetch('/local/vault/sync',{method:'POST',headers:{'X-PKB':'1'}}),data=await r.json();if(!r.ok)throw Error(data.error||'Sync failed');toast(data.pushed?'Encrypted snapshot synced':'No changes');}finally{b.disabled=false;}}}catch(e){toast(e.message,true);}});
+$('#financeView').addEventListener('submit',async e=>{if(!['vaultRegister','vaultUnlock'].includes(e.target.id))return;e.preventDefault();const form=e.target,field=form.querySelector('textarea,input'),value=field.value;field.value='';vault.busy=true;vault.error='';const button=form.querySelector('button');button.disabled=true;try{if(form.id==='vaultRegister')await registerVault(value);else await unlockVault(value);}catch{vault.error='登録または解錠に失敗しました。合言葉・登録コード・接続・端末の有効状態を確認してください。';}finally{vault.busy=false;renderFinance();}});
+for(const event of ['pointerdown','keydown','input','scroll'])document.addEventListener(event,()=>{if(vault.key)vault.lastActivity=Date.now();},{passive:true});
+setInterval(()=>{if(vault.key&&Date.now()-vault.lastActivity>=5*60*1000)lockVault();},15000);
+document.addEventListener('visibilitychange',()=>{if(!FINANCE_LOCAL&&document.hidden&&(vault.key||vault.busy))lockVault();});window.addEventListener('pagehide',()=>{if(!FINANCE_LOCAL)lockVault();});
+
+// Finance plaintext lives only in memory; remote writes are encrypted.
 const finance = { book: 'mra', month: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date()).slice(0, 7), data: null, loading: false, error: '' };
 const yen = n => n === null || n === undefined ? '未入力' : new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(n === 0 ? 0 : n);
 const signed = r => r.direction === 'income' ? r.amount : r.direction === 'expense' ? -r.amount : 0;
 const financeSum = rows => rows.reduce((s, r) => s + signed(r), 0);
 async function financeRequest(endpoint, options = {}) {
+  if(!FINANCE_LOCAL)return remoteFinanceRequest(endpoint,options);
   const r = await fetch('/local/finance/' + endpoint, { ...options, headers: { 'X-PKB': '1', 'Content-Type': 'application/json' }, cache: 'no-store' });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || '財務データを読み込めません');
   return data;
 }
 async function loadFinance() {
-  if (!LOCAL || finance.loading) return;
+  if(!FINANCE_LOCAL)return refreshVault();
+  if (finance.loading) return;
   finance.loading = true; finance.error = ''; renderFinance();
   try { finance.data = await financeRequest('state'); }
   catch (e) { finance.error = e.message; }
@@ -1259,7 +1290,7 @@ function financeChart(rows) {
 }
 function renderFinance() {
   const el = $('#financeView');
-  if (!LOCAL) { el.innerHTML = '<section class="panel finance-message"><h2>Finance</h2><p>メインPCのローカルモードでのみ利用可。</p><p><code>node scripts/serve.mjs</code> を実行し、表示された localhost のURLを開いてください。</p></section>'; return; }
+  if(!FINANCE_LOCAL&&!vault.key){renderVaultGate();return;}
   if (!finance.data) {
     el.innerHTML = `<section class="panel finance-message"><h2>Finance</h2><p role="status">${esc(finance.error || 'ローカルの帳簿を読み込んでいます…')}</p><button class="btn" data-fin-refresh>再読み込み</button></section>`;
     if (!finance.loading && !finance.error) loadFinance();
@@ -1282,7 +1313,7 @@ function renderFinance() {
   const rules = finance.data.recurring.filter(r => r.book === finance.book && r.active !== false);
   const reviews = all.filter(r => r.status === 'needs_review');
   const list = monthRows.slice().sort((a,b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
-  el.innerHTML = `<div class="finance-toolbar"><div class="finance-books" role="tablist" aria-label="帳簿"><button class="btn" role="tab" aria-selected="${finance.book === 'mra'}" data-fin-book="mra">MRA</button><button class="btn" role="tab" aria-selected="${finance.book === 'personal'}" data-fin-book="personal">Personal</button></div><label>Month <input class="select" type="month" id="financeMonth" value="${esc(finance.month)}"></label><button class="btn" data-fin-refresh ${finance.loading ? 'disabled' : ''}>Refresh</button><button class="btn primary" data-fin-add>Add transaction</button><label class="btn finance-upload">Add receipt<input type="file" id="financeReceipt" accept="image/jpeg,image/png,image/webp" hidden></label></div>
+  el.innerHTML = `${FINANCE_LOCAL?'<button class="btn" data-vault-sync>Sync vault</button>':'<div class="panel finance-note">メインPCが同期すると反映されます（最終同期: '+esc(finance.data.syncedAt||'未同期')+'）。送信待ち: '+vault.pending.length+'件 <button class="btn" data-vault-lock>Lock</button></div>'}<div class="finance-toolbar"><div class="finance-books" role="tablist" aria-label="帳簿"><button class="btn" role="tab" aria-selected="${finance.book === 'mra'}" data-fin-book="mra">MRA</button><button class="btn" role="tab" aria-selected="${finance.book === 'personal'}" data-fin-book="personal">Personal</button></div><label>Month <input class="select" type="month" id="financeMonth" value="${esc(finance.month)}"></label><button class="btn" data-fin-refresh ${finance.loading ? 'disabled' : ''}>Refresh</button><button class="btn primary" data-fin-add>Add transaction</button><label class="btn finance-upload">Add receipt<input type="file" id="financeReceipt" accept="image/jpeg,image/png,image/webp" hidden></label></div>
     ${finance.error ? `<p class="error-box" role="alert">${esc(finance.error)}</p>` : ''}
     <p class="finance-note">実績は確定済みの円取引のみ。振替は収支に含めません。見込みは未確定取引を加算し、将来の売上は予測しません。</p>
     <div class="finance-stats">${stats.map(([label,value]) => `<section class="panel"><h3>${label}</h3><strong>${yen(value)}</strong></section>`).join('')}</div>
@@ -1321,10 +1352,10 @@ $('#financeView').addEventListener('change', async e => {
   if (e.target.id === 'financeMonth' && /^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)) { finance.month = e.target.value; renderFinance(); }
   if (e.target.id !== 'financeReceipt' || !e.target.files[0]) return;
   const file = e.target.files[0];
-  if (file.size > 8 * 1024 * 1024) { finance.error = '画像は8MB以下にしてください'; renderFinance(); return; }
+  if (file.size > (FINANCE_LOCAL?8:25) * 1024 * 1024) { finance.error = '画像は8MB以下にしてください'; renderFinance(); return; }
   e.target.disabled = true;
   try {
-    const base64 = await new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result.split(',')[1]); fr.onerror = () => reject(new Error('画像を読めません')); fr.readAsDataURL(file); });
+    const base64 = FINANCE_LOCAL?await new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result.split(',')[1]); fr.onerror = () => reject(new Error('画像を読めません')); fr.readAsDataURL(file); }):await resizedReceipt(file);
     await financeRequest('receipts', { method: 'POST', body: JSON.stringify({ book: finance.book, base64 }) });
     await loadFinance();
   } catch (err) { finance.error = err.message; renderFinance(); }
@@ -1334,9 +1365,10 @@ $('#financeDialog').addEventListener('click', async e => {
   const btn = e.target.closest('[data-fin-image]');
   if (!btn) return;
   try {
-    const r = await fetch('/local/finance/' + btn.dataset.finImage, { headers: { 'X-PKB': '1' }, cache: 'no-store' });
+    const session=vault.session;
+    const r = FINANCE_LOCAL?await fetch('/local/finance/' + btn.dataset.finImage, { headers: { 'X-PKB': '1' }, cache: 'no-store' }):{ok:true,blob:()=>remoteReceipt(btn.dataset.finImage)};
     if (!r.ok) throw new Error('画像を表示できません');
-    const fr = new FileReader(); fr.onload = () => { const img = document.createElement('img'); img.src = fr.result; img.alt = 'Receipt'; $('#financeImage').replaceChildren(img); }; fr.readAsDataURL(await r.blob());
+    const fr = new FileReader(); fr.onload = () => { if(!FINANCE_LOCAL&&session!==vault.session)return;const img = document.createElement('img'); img.src = fr.result; img.alt = 'Receipt'; $('#financeImage').replaceChildren(img); }; fr.readAsDataURL(await r.blob());
   } catch (err) { $('#financeFormError').hidden = false; $('#financeFormError').textContent = err.message; }
 });
 
