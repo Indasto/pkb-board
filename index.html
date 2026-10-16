@@ -348,6 +348,37 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 @media(max-width:820px) { .finance-grid { grid-template-columns:1fr; gap:0; } .finance-stats { grid-template-columns:1fr 1fr; gap:10px; } #financeView .panel { padding:15px; } .finance-toolbar { gap:8px; } .finance-books { width:100%; } .finance-toolbar>.btn,.finance-upload { font-size:12px; } }
 @media(max-width:420px) { .finance-form-grid { grid-template-columns:1fr; } }
 
+/* Mail summaries are served locally; task links use the existing task sheet. */
+.mail-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:0 0 18px; }
+.mail-toolbar h2 { margin:0 auto 0 0; font-size:20px; }
+.mail-accounts { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 18px; }
+.mail-account[aria-selected="true"] { color:var(--primary-text); background:var(--primary); border-color:var(--primary); }
+.mail-account small { margin-left:8px; opacity:.75; }
+.mail-overview { padding:20px; margin-bottom:18px; line-height:1.8; }
+.mail-overview p { margin:0 0 8px; white-space:pre-line; }
+.mail-meta { color:var(--muted); font-size:12px; }
+.mail-controls { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; }
+.mail-search { min-width:180px; flex:1; padding:10px 12px; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:9px; font:inherit; }
+.mail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr)); gap:14px; align-items:start; }
+.mail-card { padding:18px; min-width:0; }
+.mail-card h3 { margin:8px 0; font-size:16px; overflow-wrap:anywhere; }
+.mail-card p { margin:8px 0 12px; line-height:1.8; white-space:pre-line; overflow-wrap:anywhere; }
+.mail-state { font-size:12px; padding:3px 8px; border-radius:99px; background:var(--badge-bg); color:var(--badge-text); }
+.mail-state.info,.mail-state.resolved { background:var(--bg); color:var(--muted); }
+.mail-card-head { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.mail-card details { border-top:1px solid var(--border); padding-top:10px; margin-top:12px; }
+.mail-card summary { cursor:pointer; font-size:13px; color:var(--muted); }
+.mail-card ul { padding-left:18px; line-height:1.8; overflow-wrap:anywhere; }
+.mail-history { padding:10px 0; border-bottom:1px solid var(--border); line-height:1.7; font-size:13px; }
+.mail-history time { display:block; color:var(--muted); font-size:12px; }
+.mail-task-link { display:block; width:100%; text-align:left; margin-top:8px; white-space:normal; line-height:1.6; }
+.mail-task-link small { display:block; color:var(--muted); }
+.mail-task-group { margin:0 0 18px; padding:16px 20px; }
+.mail-task-group summary { cursor:pointer; font-weight:600; }
+.mail-count { color:var(--muted); font-size:13px; margin-bottom:12px; }
+.mail-private-note { color:var(--muted); font-size:13px; line-height:1.7; }
+@media(max-width:600px) { .mail-overview,.mail-card { padding:15px; } .mail-account { flex:1; } .mail-controls .select { flex:1; } }
+
 </style>
 </head>
 <body>
@@ -357,6 +388,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
     <button class="view-btn" role="tab" data-view="board">Board</button>
     <button class="view-btn" role="tab" data-view="schedule">Schedule</button>
     <button class="view-btn" role="tab" data-view="finance">Finance</button>
+    <button class="view-btn" role="tab" data-view="mail">Mail</button>
   </nav>
   <div class="summary" id="summary"></div>
   <div class="top-actions">
@@ -387,6 +419,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   </div>
   <div id="scheduleView" class="sched" hidden></div>
   <div id="financeView" hidden></div>
+  <div id="mailView" hidden></div>
 </main>
 
 <div id="overlay" class="overlay" hidden></div>
@@ -433,7 +466,7 @@ const STATUSES = [
 const BY_KEY = Object.fromEntries(STATUSES.map((s) => [s.key, s]));
 const BY_DIR = Object.fromEntries(STATUSES.map((s) => [s.dir, s]));
 const DONE_LIMIT = 30;
-const META_ORDER = ['id', 'title', 'status', 'project', 'owner', 'assignee', 'due', 'end', 'kind', 'created', 'updated'];
+const META_ORDER = ['id', 'title', 'status', 'project', 'owner', 'assignee', 'due', 'end', 'kind', 'mail_account', 'mail_role', 'created', 'updated'];
 const LOCAL = window.PKB_LOCAL || null;
 
 const store = {
@@ -615,7 +648,7 @@ const LOAD_QUERY = `query($owner:String!,$name:String!,$tasks:String!,$inbox:Str
 }`;
 
 async function load({ quiet = false } = {}) {
-  if (!LOCAL && !cfg.token) { if (state.view !== 'finance') openSettings(true); renderView(); return; }
+  if (!LOCAL && !cfg.token) { if (!['finance','mail'].includes(state.view)) openSettings(true); renderView(); return; }
   if (state.loading) return;
   state.loading = true;
   $('#refreshBtn').classList.add('spin');
@@ -791,6 +824,7 @@ function sendInstruction(task, btn) {
 function visibleTasks() {
   return state.tasks.filter((t) => !state.filter || t.meta.project === state.filter);
 }
+function boardTasks() { return visibleTasks().filter(t => !routedMailReview(t)); }
 function renderAll() {
   renderHeader();
   // Task refreshes must not replace an active Finance upload control.
@@ -798,7 +832,7 @@ function renderAll() {
   if (state.openId) renderSheet();
 }
 function renderHeader() {
-  const vt = visibleTasks();
+  const vt = boardTasks();
   const count = (k) => vt.filter((t) => t.status === k).length;
   $('#summary').innerHTML = STATUSES.filter((s) => !s.archive).map((s) => {
     const n = count(s.key);
@@ -842,7 +876,7 @@ function renderBoard() {
     return;
   }
   const mobile = matchMedia('(max-width: 820px)').matches;
-  const vt = visibleTasks();
+  const vt = boardTasks();
   board.innerHTML = STATUSES.filter((s) => mobile || !s.archive || state.showArchive).map((s) => {
     let ts = vt.filter((t) => t.status === s.key);
     const total = ts.length;
@@ -1071,14 +1105,16 @@ function renderSchedule() {
 function renderView() {
   const sched = state.view === 'schedule';
   const fin = state.view === 'finance';
-  $('#boardView').hidden = sched || fin;
+  const mailView = state.view === 'mail';
+  $('#mailView').hidden = !mailView;
+  $('#boardView').hidden = sched || fin || mailView;
   $('#financeView').hidden = !fin;
-  $('.composer').hidden = fin;
-  $('#projectFilter').hidden = fin;
-  $('#summary').hidden = fin;
+  $('.composer').hidden = fin || mailView;
+  $('#projectFilter').hidden = fin || mailView;
+  $('#summary').hidden = fin || mailView;
   $('#scheduleView').hidden = !sched;
   document.querySelectorAll('.view-btn').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === state.view)));
-  if (fin) renderFinance(); else if (sched) renderSchedule(); else renderBoard();
+  if (mailView) renderMail(); else if (fin) renderFinance(); else if (sched) renderSchedule(); else renderBoard();
 }
 function openSheet(id) {
   state.openId = id;
@@ -1123,7 +1159,7 @@ function autoGrow() {
 $('#newText').addEventListener('input', autoGrow);
 $('#newText').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addTask(); });
 $('#addBtn').onclick = addTask;
-$('#refreshBtn').onclick = () => state.view === 'finance' ? loadFinance() : load();
+$('#refreshBtn').onclick = () => state.view === 'finance' ? loadFinance() : state.view === 'mail' ? (loadMail(), load()) : load();
 $('#settingsBtn').onclick = () => openSettings();
 $('#overlay').onclick = closeSheet;
 $('#projectFilter').onchange = (e) => { state.filter = e.target.value; store.set('filter', state.filter); renderAll(); };
@@ -1295,6 +1331,71 @@ $('#financeDialog').addEventListener('click', async e => {
     const fr = new FileReader(); fr.onload = () => { const img = document.createElement('img'); img.src = fr.result; img.alt = 'Receipt'; $('#financeImage').replaceChildren(img); }; fr.readAsDataURL(await r.blob());
   } catch (err) { $('#financeFormError').hidden = false; $('#financeFormError').textContent = err.message; }
 });
+
+// Private mail summaries remain in memory. Never copy them to GitHub or browser storage.
+const mail = { account:'shukatsu', data:null, loading:false, error:'', query:'', status:'all', shown:30 };
+const MAIL_LABELS = { shukatsu:'就活', sub:'サブ', main:'メイン' };
+const MAIL_STATUS = { action:'対応・判断が必要', waiting:'確認待ち', info:'記録・参考', resolved:'方針確認済み' };
+function mailTaskAccount(t) { return ['shukatsu','sub','main'].includes(t.meta.mail_account) ? t.meta.mail_account : null; }
+function routedMailReview(t) { return t.status === 'review' && mailTaskAccount(t) && !t.pending; }
+function mailItemStatus(item) {
+  const linked=state.tasks.filter(t=>item.taskIds.includes(t.meta.id));
+  if(linked.length&&linked.every(t=>t.status==='done'))return 'resolved';
+  if(linked.length&&linked.every(t=>['hold','done'].includes(t.status)))return 'waiting';
+  return item.status;
+}
+function mailTasks(account=mail.account) {
+  return state.tasks.filter(t=>mailTaskAccount(t)===account&&t.status!=='done').sort((a,b)=>(a.meta.mail_role==='reference')-(b.meta.mail_role==='reference')||(a.meta.due||'9999').localeCompare(b.meta.due||'9999'));
+}
+function mailTaskButton(t) {
+  const label=t.meta.mail_role==='reference'?'参考・未予約':BY_KEY[t.status].label;
+  return `<button class="btn mail-task-link" data-mail-task="${esc(t.meta.id)}">${esc(t.meta.title)}<small>${esc(label)}${t.meta.due?' · '+esc(dueLabel(t.meta.due,t.meta.kind)):''}${t.pending?' · 📩 指示あり':''}</small></button>`;
+}
+async function loadMail() {
+  if (!LOCAL||mail.loading) return;
+  mail.loading=true;mail.error='';renderMail();
+  try {
+    const r=await fetch('/local/mail/state',{headers:{'X-PKB':'1'},cache:'no-store'});
+    const data=await r.json();if(!r.ok)throw new Error(data.error||'メール要約を読み込めません');mail.data=data;
+  } catch(e) { mail.error=e.message; }
+  finally { mail.loading=false;if(state.view==='mail')renderMail(); }
+}
+function renderMail() {
+  const el=$('#mailView');
+  const accounts=['shukatsu','sub','main'];
+  const account=mail.data?.accounts.find(a=>a.id===mail.account);
+  el.innerHTML=`<div class="mail-toolbar"><h2>Mail</h2><button class="btn" data-mail-refresh ${mail.loading?'disabled':''}>更新</button></div>
+    <div class="mail-accounts" role="tablist" aria-label="メールアカウント">${accounts.map(id=>`<button class="btn mail-account" role="tab" data-mail-account="${id}" aria-selected="${id===mail.account}">${MAIL_LABELS[id]}<small>${mail.data?.accounts.find(a=>a.id===id)?.imported?'要約あり':LOCAL?'未取り込み':'対応一覧'}</small></button>`).join('')}</div>
+    ${mail.error?`<p class="error-box" role="alert">${esc(mail.error)}</p>`:''}
+    <section class="panel mail-overview"><p>${esc(account?.overview||(!LOCAL?'メール本文・要約はメインPCのローカル版で表示します。この画面ではメールに関連するタスクを確認できます。':mail.loading?'メール要約を読み込んでいます…':'過去メールはまだ取り込まれていません。'))}</p>${account?.coverage?`<div class="mail-meta">${esc(account.coverage)}</div>`:''}${account?.updated?`<div class="mail-meta">更新 ${esc(account.updated)}</div>`:''}<div class="mail-private-note">通知はここにまとめ、必要な対応だけをタスクに紐付けます。予定・期限はScheduleにも表示します。</div></section>
+    <div id="mailTasks"></div>
+    ${LOCAL?'<div class="mail-controls"><input id="mailQuery" class="mail-search" type="search" placeholder="企業・サービス・件名・要約を検索" aria-label="メール要約を検索" value="'+esc(mail.query)+'"><select id="mailStatus" class="select" aria-label="メールの対応状況"><option value="all">すべての要約</option>'+Object.entries(MAIL_STATUS).map(([k,v])=>'<option value="'+k+'"'+(mail.status===k?' selected':'')+'>'+v+'</option>').join('')+'</select></div><div id="mailCount" class="mail-count"></div><div id="mailGrid" class="mail-grid"></div><div id="mailMore"></div>':''}`;
+  renderMailItems();
+  if(LOCAL&&!mail.data&&!mail.loading&&!mail.error)loadMail();
+}
+function renderMailItems() {
+  const tasks=mailTasks();
+  const action=tasks.filter(t=>t.meta.mail_role!=='reference'),reference=tasks.filter(t=>t.meta.mail_role==='reference');
+  $('#mailTasks').innerHTML=[['対応・判断するタスク',action],['参考・未予約の候補',reference]].filter(([,ts])=>ts.length).map(([title,ts])=>`<details class="panel mail-task-group"><summary>${title} · ${ts.length}件</summary>${ts.map(mailTaskButton).join('')}</details>`).join('');
+  if(!LOCAL)return;
+  const account=mail.data?.accounts.find(a=>a.id===mail.account),q=mail.query.trim().toLocaleLowerCase();
+  const items=(account?.items||[]).map(x=>({...x,status:mailItemStatus(x)})).filter(x=>(mail.status==='all'||x.status===mail.status)&&(!q||[x.title,x.category,x.summary,...(x.details||[]),...(x.messages||[]).map(m=>m.subject)].join('\n').toLocaleLowerCase().includes(q))).sort((a,b)=>(b.status==='action')-(a.status==='action')||b.date.localeCompare(a.date));
+  $('#mailCount').textContent=items.length?`${items.length}件の要約 · メールは企業・サービスごとに集約`:(account?.imported?'条件に一致する要約はありません。':'このアカウントはまだ取り込まれていません。');
+  $('#mailGrid').innerHTML=items.slice(0,mail.shown).map(x=>{
+    const linked=tasks.filter(t=>x.taskIds.includes(t.meta.id));
+    return `<article class="panel mail-card"><div class="mail-card-head"><span class="mail-state ${esc(x.status)}">${MAIL_STATUS[x.status]}</span><span class="mail-meta">${esc(x.date)}</span></div><h3>${esc(x.title)}</h3><div class="mail-meta">${esc(x.category)} · ${x.messageCount}通</div><p>${esc(x.summary)}</p>${x.details?.length?`<details><summary>整理メモ</summary><ul>${x.details.map(d=>`<li>${esc(d)}</li>`).join('')}</ul></details>`:''}${linked.length?`<details><summary>関連タスク · ${linked.length}件</summary>${linked.map(mailTaskButton).join('')}</details>`:''}${x.messages?.length?`<details><summary>メールの履歴 · ${x.messages.length}通</summary>${x.messages.map(m=>`<div class="mail-history"><time>${esc(m.date)}</time>${esc(m.subject)}</div>`).join('')}</details>`:''}</article>`;
+  }).join('');
+  $('#mailMore').innerHTML=items.length>mail.shown?'<button class="btn" data-mail-more style="margin-top:18px">さらに30件表示</button>':'';
+}
+$('#mailView').addEventListener('click',e=>{
+  const account=e.target.closest('[data-mail-account]');if(account){mail.account=account.dataset.mailAccount;mail.shown=30;mail.query='';mail.status='all';renderMail();return;}
+  const task=e.target.closest('[data-mail-task]');if(task){openSheet(task.dataset.mailTask);return;}
+  if(e.target.closest('[data-mail-refresh]')){if(LOCAL)loadMail();load();}
+  if(e.target.closest('[data-mail-more]')){mail.shown+=30;renderMailItems();}
+});
+$('#mailView').addEventListener('input',e=>{if(e.target.id==='mailQuery'){mail.query=e.target.value;mail.shown=30;renderMailItems();}});
+$('#mailView').addEventListener('change',e=>{if(e.target.id==='mailStatus'){mail.status=e.target.value;mail.shown=30;renderMailItems();}});
+
 
 // 起動
 {
