@@ -96,7 +96,7 @@ main { padding: 16px; max-width: 1600px; margin: 0 auto; }
 /* composer */
 .composer {
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
-  padding: 10px 12px; margin-bottom: 16px; max-width: 760px;
+  padding: 10px 12px; margin-bottom: 16px; max-width: 900px;
 }
 .composer textarea {
   width: 100%; border: 0; background: transparent; resize: none; outline: none; overflow: hidden; min-height: 26px; max-height: 40vh; padding: 2px 0;
@@ -208,7 +208,87 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .skeleton { height: 64px; border-radius: 10px; background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
+/* view switch */
+.views { display: inline-flex; background: var(--surface-2); border-radius: 9px; padding: 3px; gap: 2px; flex: none; }
+.view-btn { border: 0; background: transparent; padding: 4px 12px; border-radius: 7px; font-size: 13.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.view-btn[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.composer-row { flex-wrap: wrap; }
+.composer-row .date-in { width: 140px; max-width: none; }
+.composer-row .time-in { width: 100px; max-width: none; }
+
+/* schedule */
+.sched { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; box-shadow: var(--shadow); min-width: 0; }
+.cal-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.cal-title { font-weight: 700; font-size: 17px; margin-right: auto; font-variant-numeric: tabular-nums; }
+.cal-today-btn { height: 32px; padding: 0 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; font-size: 13px; font-weight: 600; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-dow { font-size: 12px; color: var(--muted); text-align: center; padding: 2px 0; font-weight: 700; }
+.cal-dow.sun { color: var(--danger); } .cal-dow.sat { color: var(--s-doing); }
+.cal-day {
+  min-height: 96px; text-align: left; border: 1px solid var(--border); background: var(--bg); border-radius: 8px;
+  padding: 4px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; min-width: 0;
+}
+.cal-day:hover { border-color: color-mix(in srgb, var(--focus) 50%, var(--border)); }
+.cal-day.other { opacity: .42; }
+.cal-day.sel { outline: 2px solid var(--focus); outline-offset: -1px; }
+.cal-num { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; align-self: flex-start; padding: 0 5px; border-radius: 99px; }
+.cal-day.sun .cal-num { color: var(--danger); } .cal-day.sat .cal-num { color: var(--s-doing); }
+.cal-day.today .cal-num { background: var(--s-review); color: #fff; }
+.cal-items { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-chip {
+  display: block; font-size: 11.5px; line-height: 1.35; padding: 1px 5px; border-radius: 4px; min-width: 0;
+  background: color-mix(in srgb, var(--c) 15%, var(--surface)); border-left: 3px solid var(--c);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.k-deadline { --c: var(--s-review); } .k-event { --c: var(--s-doing); } .k-over { --c: var(--danger); }
+.cal-chip.done, .sched-item.done { opacity: .5; text-decoration: line-through; }
+.cal-more { font-size: 11px; color: var(--muted); padding-left: 4px; }
+.cal-dots { display: none; gap: 3px; justify-content: center; flex-wrap: wrap; }
+.cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.cal-foot { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.cal-foot .lg { display: inline-flex; align-items: center; gap: 5px; }
+.cal-foot .lg i { width: 10px; height: 10px; border-radius: 3px; background: var(--c); display: inline-block; }
+.cal-foot label { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.agenda-head { display: flex; align-items: center; gap: 8px; }
+.agenda-head h3 { margin: 0; font-size: 15px; }
+.agenda-head .link { margin-left: auto; background: none; border: 0; color: var(--focus); font-size: 13px; padding: 0; }
+.agenda-group { margin-top: 12px; }
+.agenda-date { font-size: 13px; font-weight: 700; display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.agenda-date .rel { color: var(--muted); font-weight: 600; font-size: 12px; }
+.agenda-date.over, .agenda-date.over .rel { color: var(--danger); }
+.agenda-date.today { color: var(--s-review); }
+.sched-item { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 7px 6px; align-items: start; }
+.sched-item:hover { background: var(--surface-2); }
+.sched-when { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--c); line-height: 1.5; }
+.sched-title { font-weight: 600; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.sched-meta { display: flex; flex-wrap: wrap; gap: 3px 8px; font-size: 12px; color: var(--muted); margin-top: 2px; align-items: center; }
+.mini-pill { display: inline-flex; align-items: center; gap: 4px; }
+.mini-pill .dot { width: 7px; height: 7px; }
+.agenda-empty { font-size: 13px; color: var(--muted); padding: 14px 4px; }
+.agenda-note { font-size: 12px; color: var(--muted); margin-top: 14px; }
+
+/* date editor in sheet */
+.date-edit { background: var(--surface-2); border-radius: 10px; padding: 8px 12px; margin-top: 12px; }
+.date-edit summary { cursor: pointer; font-size: 13.5px; }
+.date-edit summary .muted { color: var(--muted); margin-left: 6px; font-size: 12.5px; }
+.date-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-top: 8px; }
+.date-row label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 3px; }
+.date-row input, .date-row select { height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 0 8px; }
+
+@media (max-width: 1100px) { .sched { grid-template-columns: 1fr; } }
 @media (max-width: 820px) {
+  .top { flex-wrap: wrap; row-gap: 8px; }
+  .views { order: 5; width: 100%; }
+  .view-btn { flex: 1; padding: 6px 12px; }
+  .panel { padding: 8px; }
+  .cal-grid { gap: 2px; }
+  .cal-day { min-height: 46px; align-items: center; padding: 4px 2px; gap: 4px; }
+  .cal-num { align-self: center; }
+  .cal-items { display: none; }
+  .cal-dots { display: flex; }
+  .composer-row .date-in { width: 136px; }
+
   .top { gap: 8px; }
   .summary { display: none; }
   .top-actions .select { max-width: 130px; }
@@ -239,6 +319,10 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 <body>
 <header class="top">
   <div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16"><rect x="1" y="2" width="4" height="12" rx="1" fill="#fff"/><rect x="6" y="2" width="4" height="8" rx="1" fill="#fff" opacity=".85"/><rect x="11" y="2" width="4" height="5" rx="1" fill="#fff" opacity=".7"/></svg></span>PKB <span id="branchBadge" class="branch" hidden></span></div>
+  <nav class="views" id="views" role="tablist" aria-label="表示切替">
+    <button class="view-btn" role="tab" data-view="board">ボード</button>
+    <button class="view-btn" role="tab" data-view="schedule">スケジュール</button>
+  </nav>
   <div class="summary" id="summary"></div>
   <div class="top-actions">
     <select id="projectFilter" class="select" aria-label="プロジェクトで絞り込み"></select>
@@ -252,15 +336,21 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
     <textarea id="newText" rows="1" placeholder="やることを書く…" aria-label="新しいタスク"></textarea>
     <div class="composer-row">
       <select id="newProject" class="select" aria-label="プロジェクト"></select>
+      <input type="date" id="newDate" class="select date-in" aria-label="日付（任意）" title="締切・予定の日付（任意）">
+      <input type="time" id="newTime" class="select time-in" aria-label="時刻（任意）" title="時刻（任意）">
+      <select id="newKind" class="select" aria-label="種類"><option value="deadline">締切</option><option value="event">予定</option></select>
       <span class="hint">1行目がタイトル<span class="kbd">・Ctrl+Enter で追加</span></span>
       <button id="addBtn" class="btn primary">追加</button>
     </div>
   </section>
   <div id="errorBox" class="error-box" hidden></div>
   <div id="notice" class="notice" hidden></div>
-  <nav class="tabs" id="tabs" role="tablist"></nav>
-  <div class="board" id="board"></div>
-  <button id="archiveToggle" class="archive-toggle"></button>
+  <div id="boardView">
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div class="board" id="board"></div>
+    <button id="archiveToggle" class="archive-toggle"></button>
+  </div>
+  <div id="scheduleView" class="sched" hidden></div>
 </main>
 
 <div id="overlay" class="overlay" hidden></div>
@@ -306,7 +396,7 @@ const STATUSES = [
 const BY_KEY = Object.fromEntries(STATUSES.map((s) => [s.key, s]));
 const BY_DIR = Object.fromEntries(STATUSES.map((s) => [s.dir, s]));
 const DONE_LIMIT = 30;
-const META_ORDER = ['id', 'title', 'status', 'project', 'owner', 'assignee', 'due', 'created', 'updated'];
+const META_ORDER = ['id', 'title', 'status', 'project', 'owner', 'assignee', 'due', 'end', 'kind', 'created', 'updated'];
 const LOCAL = window.PKB_LOCAL || null;
 
 const store = {
@@ -325,6 +415,7 @@ const state = {
   tasks: [], projects: [], inboxPending: 0, loaded: false, loading: false, busy: false,
   tab: store.get('tab', 'review'), showArchive: store.get('showArchive', false),
   filter: store.get('filter', ''), openId: null, pushed: false,
+  view: store.get('view', 'board'), calMonth: null, selDay: null, schedDone: store.get('schedDone', false),
 };
 
 // ===================== ユーティリティ =====================
@@ -361,13 +452,23 @@ function daysLeft(due) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return Math.round((new Date(+m[1], m[2] - 1, +m[3]) - today) / 86400000);
 }
-function dueLabel(due) {
-  const d = daysLeft(due);
-  if (d === null) return '';
-  const md = due.slice(5).replace(/^0/, '').replace('-0', '/').replace('-', '/');
-  const rel = d < 0 ? `${-d}日超過` : d === 0 ? '今日' : d === 1 ? '明日' : `あと${d}日`;
-  return `〆${md}（${rel}）`;
+// due: "YYYY-MM-DD" または "YYYY-MM-DD HH:MM"
+function parseDue(s) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)(?: (\d\d:\d\d))?/.exec(s || '');
+  return m ? { date: `${m[1]}-${m[2]}-${m[3]}`, time: m[4] || '', mo: +m[2], d: +m[3] } : null;
 }
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const DOW = ['日', '月', '火', '水', '木', '金', '土'];
+function relDays(d, kind) {
+  if (d < 0) return kind === 'event' ? '終了' : `${-d}日超過`;
+  return d === 0 ? '今日' : d === 1 ? '明日' : `あと${d}日`;
+}
+function dueLabel(due, kind) {
+  const p = parseDue(due);
+  if (!p) return '';
+  return `${kind === 'event' ? '📅' : '〆'}${p.mo}/${p.d}${p.time ? ' ' + p.time : ''}（${relDays(daysLeft(due), kind)}）`;
+}
+const isSoon = (m) => { const d = daysLeft(m.due); return d !== null && d <= 2 && !(m.kind === 'event' && d < 0); };
 function b64decode(b64) {
   const bin = atob(b64.replace(/\s/g, ''));
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
@@ -591,15 +692,21 @@ async function addTask() {
   const tag = raw.match(/(?:^|\s)#([^\s#]+)/);
   const project = $('#newProject').value || (tag ? tag[1] : '');
   const title = lines[0].replace(/(?:^|\s)#[^\s#]+/g, '').trim() || lines[0].trim();
+  const date = $('#newDate').value, time = $('#newTime').value, kind = $('#newKind').value;
   await runOp($('#addBtn'), async () => {
     await commit(`web: タスク追加「${title}」`, async () => {
       const id = newId(new Set(state.tasks.map((t) => t.meta.id)));
       const ts = nowStr();
       const meta = { id, title, status: 'inbox', project, owner: '', created: ts, updated: ts };
+      if (date) {
+        meta.due = date + (time ? ' ' + time : '');
+        if (kind === 'event') meta.kind = 'event';
+      }
       const body = `\n## 内容\n${raw}\n\n## 完了条件\n\n\n## 指示\n\n\n## 結果・メモ\n\n\n## ログ\n- ${ts} [user] 作成（Web）\n`;
       return [{ path: `tasks/0_inbox/${id}_${slug(title)}.md`, content: serializeTask(meta, body) }];
     });
     $('#newText').value = '';
+    $('#newDate').value = ''; $('#newTime').value = '';
     autoGrow();
   }, 'タスクを追加しました');
 }
@@ -649,7 +756,7 @@ function visibleTasks() {
 }
 function renderAll() {
   renderHeader();
-  renderBoard();
+  renderView();
   if (state.openId) renderSheet();
 }
 function renderHeader() {
@@ -684,7 +791,7 @@ function cardHtml(t) {
     ${sn ? `<div class="card-snippet">${esc(sn)}</div>` : ''}
     <div class="card-meta">
       ${t.pending ? `<span class="badge">📩 指示あり</span>` : ''}
-      ${t.meta.due && t.status !== 'done' ? `<span class="due${daysLeft(t.meta.due) <= 2 ? ' soon' : ''}">${esc(dueLabel(t.meta.due))}</span>` : ''}
+      ${t.meta.due && t.status !== 'done' ? `<span class="due${isSoon(t.meta) ? ' soon' : ''}">${esc(dueLabel(t.meta.due, t.meta.kind))}</span>` : ''}
       ${t.meta.project ? `<span class="chip">#${esc(t.meta.project)}</span>` : ''}
       ${who ? `<span>${esc(who)}</span>` : ''}
       <span class="time" title="${esc(t.meta.updated)}">${esc(relTime(t.meta.updated))}</span>
@@ -753,10 +860,10 @@ function renderSheet() {
         ${t.meta.project ? `<span class="chip">#${esc(t.meta.project)}</span>` : ''}
         ${t.meta.owner ? `<span>担当 @${esc(t.meta.owner)}</span>` : ''}
         ${t.meta.assignee ? `<span>依頼先 →${esc(t.meta.assignee)}</span>` : ''}
-        ${t.meta.due ? `<span class="due${daysLeft(t.meta.due) <= 2 && t.status !== 'done' ? ' soon' : ''}">期限 ${esc(t.meta.due)}${t.status !== 'done' ? ' ' + esc(dueLabel(t.meta.due).replace(/^〆[^（]*/, '')) : ''}</span>` : ''}
         <span>更新 ${esc(t.meta.updated || '')}</span>
         <span>ID ${esc(t.meta.id)}</span>
       </div>
+      ${dateEditorHtml(t)}
       <div class="actions">${(QUICK[t.status] || []).map(([to, label, cls]) => `<button class="btn ${cls || ''}" data-move="${to}">${esc(label)}</button>`).join('')}</div>
       <div class="instruct">
         <label for="instructText">${t.status === 'review' ? '指示・返事を送る' : '指示を追加'}</label>
@@ -788,6 +895,147 @@ function renderSheet() {
   $('#sendInstruct').onclick = (e) => sendInstruction(t, e.currentTarget);
   $('#instructText').onkeydown = (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#sendInstruct').click(); };
   $('#moveSelect').onchange = (e) => { if (e.target.value !== t.status) moveTask(t, e.target.value, null); };
+  $('#edSave').onclick = (e) => {
+    const date = $('#edDate').value;
+    if (!date) { $('#edDate').focus(); return; }
+    const time = $('#edTime').value;
+    const end = $('#edEnd').value;
+    saveSchedule(t, { due: date + (time ? ' ' + time : ''), end: end && end > date ? end : '', kind: $('#edKind').value }, e.currentTarget);
+  };
+  $('#edClear').onclick = (e) => saveSchedule(t, { due: '', end: '', kind: '' }, e.currentTarget);
+}
+function dateEditorHtml(t) {
+  const p = parseDue(t.meta.due);
+  const label = p ? `${dueLabel(t.meta.due, t.meta.kind)}${t.meta.end ? ` 〜 ${+t.meta.end.slice(5, 7)}/${+t.meta.end.slice(8, 10)}` : ''}` : '未設定';
+  return `<details class="date-edit"${p ? '' : ''}>
+    <summary>日付：<b class="${p && isSoon(t.meta) && t.status !== 'done' ? 'due soon' : ''}">${esc(label)}</b><span class="muted">変更</span></summary>
+    <div class="date-row">
+      <label>日付<input type="date" id="edDate" value="${esc(p?.date || '')}"></label>
+      <label>時刻（任意）<input type="time" id="edTime" value="${esc(p?.time || '')}"></label>
+      <label>終了日（複数日の予定）<input type="date" id="edEnd" value="${esc(t.meta.end || '')}"></label>
+      <label>種類<select id="edKind"><option value="deadline">締切</option><option value="event"${t.meta.kind === 'event' ? ' selected' : ''}>予定</option></select></label>
+      <button class="btn primary" id="edSave">保存</button>
+      ${p ? '<button class="btn" id="edClear">日付を消す</button>' : '<span id="edClear" hidden></span>'}
+    </div>
+  </details>`;
+}
+function saveSchedule(task, { due, end, kind }, btn) {
+  return runOp(btn, () => mutateTask(task, `web: ${task.meta.id} の日付を変更`, ({ meta, body }) => {
+    for (const [k, v] of Object.entries({ due, end, kind: kind === 'event' ? 'event' : '' })) {
+      if (v && due) meta[k] = v; else delete meta[k];
+    }
+    return { body: appendLog(body, `[user] 日付を変更: ${due ? dueLabel(due, kind) + (end ? ' 〜 ' + end : '') : 'なし'}`) };
+  }), due ? '日付を保存しました' : '日付を消しました');
+}
+
+// ===================== スケジュール =====================
+function schedItems() {
+  return visibleTasks().filter((t) => parseDue(t.meta.due) && (state.schedDone || t.status !== 'done')).map((t) => {
+    const p = parseDue(t.meta.due);
+    const end = /^\d{4}-\d\d-\d\d$/.test(t.meta.end || '') && t.meta.end > p.date ? t.meta.end : p.date;
+    const kind = t.meta.kind === 'event' ? 'event' : 'deadline';
+    return { t, start: p.date, end, time: p.time, kind };
+  });
+}
+const kindClass = (it, today) => it.kind === 'deadline' && it.start < today && it.t.status !== 'done' ? 'k-over' : `k-${it.kind}`;
+function renderSchedule() {
+  const el = $('#scheduleView');
+  if (!state.loaded) { el.innerHTML = '<div class="panel"><div class="skeleton"></div></div>'; return; }
+  const today = ymd(new Date());
+  if (!state.calMonth) state.calMonth = today.slice(0, 7);
+  const [y, m] = state.calMonth.split('-').map(Number);
+  const items = schedItems();
+  // 日付 → 項目
+  const byDay = new Map();
+  for (const it of items) {
+    const d = new Date(it.start + 'T00:00:00');
+    for (let i = 0; i < 62 && ymd(d) <= it.end; i++, d.setDate(d.getDate() + 1)) {
+      const k = ymd(d);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(it);
+    }
+  }
+  const sortIt = (a, b) => (a.time || '99:99').localeCompare(b.time || '99:99') || a.t.meta.title.localeCompare(b.t.meta.title);
+  // カレンダー
+  const first = new Date(y, m - 1, 1);
+  const gridStart = new Date(y, m - 1, 1 - first.getDay());
+  const weeks = Math.ceil((first.getDay() + new Date(y, m, 0).getDate()) / 7);
+  let cells = DOW.map((w, i) => `<div class="cal-dow${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</div>`).join('');
+  for (let i = 0; i < weeks * 7; i++) {
+    const d = new Date(gridStart); d.setDate(gridStart.getDate() + i);
+    const k = ymd(d);
+    const its = (byDay.get(k) || []).slice().sort(sortIt);
+    const cls = ['cal-day', d.getMonth() !== m - 1 && 'other', k === today && 'today', k === state.selDay && 'sel', d.getDay() === 0 && 'sun', d.getDay() === 6 && 'sat'].filter(Boolean).join(' ');
+    const chips = its.slice(0, 3).map((it) => `<span class="cal-chip ${kindClass(it, today)}${it.t.status === 'done' ? ' done' : ''}" title="${esc(it.t.meta.title)}">${it.time && it.start === k ? esc(it.time) + ' ' : ''}${esc(it.t.meta.title)}</span>`).join('');
+    const dots = its.slice(0, 4).map((it) => `<span class="cal-dot ${kindClass(it, today)}"></span>`).join('');
+    cells += `<button class="${cls}" data-day="${k}" aria-label="${d.getMonth() + 1}月${d.getDate()}日 ${its.length}件"><span class="cal-num">${d.getDate()}</span><span class="cal-items">${chips}${its.length > 3 ? `<span class="cal-more">+${its.length - 3}件</span>` : ''}</span><span class="cal-dots">${dots}</span></button>`;
+  }
+  // 一覧
+  let groups = [];
+  if (state.selDay) {
+    groups.push({ key: state.selDay, items: (byDay.get(state.selDay) || []).slice().sort(sortIt) });
+  } else {
+    const over = items.filter((it) => it.kind === 'deadline' && it.start < today && it.t.status !== 'done').sort((a, b) => a.start.localeCompare(b.start) || sortIt(a, b));
+    if (over.length) groups.push({ key: 'over', items: over });
+    const map = new Map();
+    for (const it of items) {
+      if (it.end < today) continue; // 過去の予定・完了済み（期限切れは上でまとめる）
+      const k = it.start < today ? today : it.start; // 開催中の複数日予定は今日に表示
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(it);
+    }
+    [...map.keys()].sort().forEach((k) => groups.push({ key: k, items: map.get(k).sort(sortIt) }));
+  }
+  const dateHead = (k) => {
+    if (k === 'over') return `<div class="agenda-date over">期限切れ</div>`;
+    const d = new Date(k + 'T00:00:00');
+    const diff = daysLeft(k);
+    return `<div class="agenda-date${diff === 0 ? ' today' : ''}">${d.getMonth() + 1}/${d.getDate()}（${DOW[d.getDay()]}）<span class="rel">${diff === 0 ? '今日' : diff === 1 ? '明日' : diff < 0 ? `${-diff}日前` : `あと${diff}日`}</span></div>`;
+  };
+  const itemHtml = (it, groupKey) => {
+    const st = BY_KEY[it.t.status];
+    const when = it.kind === 'event' ? (it.time && it.start === groupKey ? it.time : it.start !== it.end ? '期間中' : '終日') : it.time ? `〆${it.time}` : '締切';
+    const range = it.start !== it.end ? `${+it.start.slice(5, 7)}/${+it.start.slice(8)}〜${+it.end.slice(5, 7)}/${+it.end.slice(8)}` : '';
+    const overDate = groupKey === 'over' ? `${+it.start.slice(5, 7)}/${+it.start.slice(8)}（${relDays(daysLeft(it.start), 'deadline')}）` : '';
+    return `<button class="sched-item ${kindClass(it, ymd(new Date()))}${it.t.status === 'done' ? ' done' : ''}" data-id="${esc(it.t.meta.id)}">
+      <span class="sched-when">${esc(when)}</span>
+      <span><span class="sched-title">${esc(it.t.meta.title)}</span>
+        <span class="sched-meta">
+          <span class="mini-pill" style="--c:var(${st.color})"><span class="dot"></span>${esc(st.label)}</span>
+          ${it.t.meta.project ? `<span class="chip">#${esc(it.t.meta.project)}</span>` : ''}
+          ${range ? `<span>${esc(range)}</span>` : ''}${overDate ? `<span>${esc(overDate)}</span>` : ''}
+          ${it.t.pending ? '<span class="badge">📩</span>' : ''}
+        </span></span>
+    </button>`;
+  };
+  const noDate = visibleTasks().filter((t) => !parseDue(t.meta.due) && !['done', 'hold'].includes(t.status)).length;
+  const selLabel = state.selDay ? (() => { const d = new Date(state.selDay + 'T00:00:00'); return `${d.getMonth() + 1}/${d.getDate()}（${DOW[d.getDay()]}）`; })() : '';
+  el.innerHTML = `
+    <section class="panel">
+      <div class="cal-head">
+        <div class="cal-title">${y}年${m}月</div>
+        <button class="icon-btn" data-cal="-1" aria-label="前の月">‹</button>
+        <button class="cal-today-btn" data-cal="0">今日</button>
+        <button class="icon-btn" data-cal="1" aria-label="次の月">›</button>
+      </div>
+      <div class="cal-grid">${cells}</div>
+      <div class="cal-foot">
+        <span class="lg k-deadline"><i></i>締切</span><span class="lg k-event"><i></i>予定</span><span class="lg k-over"><i></i>期限切れ</span>
+        <label><input type="checkbox" id="schedDone"${state.schedDone ? ' checked' : ''}>完了も表示</label>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="agenda-head"><h3>${state.selDay ? esc(selLabel) + ' の予定・締切' : '近い順'}</h3>${state.selDay ? '<button class="link" data-clear-day>すべて表示</button>' : ''}</div>
+      ${groups.length && groups.some((g) => g.items.length) ? groups.map((g) => `<div class="agenda-group">${state.selDay ? '' : dateHead(g.key)}${g.items.map((it) => itemHtml(it, g.key)).join('')}</div>`).join('') : `<div class="agenda-empty">${state.selDay ? 'この日の予定・締切はありません' : '日付のついたタスクはありません'}</div>`}
+      ${noDate ? `<div class="agenda-note">日付のないタスクが ${noDate} 件あります（タスクを開いて「日付」から設定できます）</div>` : ''}
+    </section>`;
+}
+function renderView() {
+  const sched = state.view === 'schedule';
+  $('#boardView').hidden = sched;
+  $('#scheduleView').hidden = !sched;
+  document.querySelectorAll('.view-btn').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === state.view)));
+  if (sched) renderSchedule(); else renderBoard();
 }
 function openSheet(id) {
   state.openId = id;
@@ -854,17 +1102,52 @@ window.addEventListener('popstate', () => {
   else if (state.openId) { state.pushed = false; closeSheet(); }
 });
 let lastW = innerWidth;
-window.addEventListener('resize', () => { if ((innerWidth <= 820) !== (lastW <= 820)) renderBoard(); lastW = innerWidth; });
+window.addEventListener('resize', () => { if ((innerWidth <= 820) !== (lastW <= 820)) renderView(); lastW = innerWidth; });
+$('#views').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]');
+  if (!b) return;
+  state.view = b.dataset.view; store.set('view', state.view);
+  renderView();
+});
+$('#scheduleView').addEventListener('click', (e) => {
+  const nav = e.target.closest('[data-cal]');
+  if (nav) {
+    const step = +nav.dataset.cal;
+    if (step === 0) { state.calMonth = ymd(new Date()).slice(0, 7); state.selDay = null; }
+    else {
+      const [y, m] = state.calMonth.split('-').map(Number);
+      const d = new Date(y, m - 1 + step, 1);
+      state.calMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    }
+    renderSchedule();
+    return;
+  }
+  const day = e.target.closest('[data-day]');
+  if (day) {
+    const k = day.dataset.day;
+    state.selDay = state.selDay === k ? null : k;
+    if (k.slice(0, 7) !== state.calMonth) state.calMonth = k.slice(0, 7);
+    renderSchedule();
+    if (state.selDay && matchMedia('(max-width: 1100px)').matches) $('#scheduleView .panel:last-child').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  if (e.target.closest('[data-clear-day]')) { state.selDay = null; renderSchedule(); return; }
+  const item = e.target.closest('.sched-item');
+  if (item) openSheet(item.dataset.id);
+});
+$('#scheduleView').addEventListener('change', (e) => {
+  if (e.target.id === 'schedDone') { state.schedDone = e.target.checked; store.set('schedDone', state.schedDone); renderSchedule(); }
+});
 // 画面に戻ってきた時と、表示中は60秒ごとに再読み込み
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.loaded && !state.busy) load({ quiet: true }); });
-setInterval(() => { if (document.visibilityState === 'visible' && state.loaded && !state.busy && !$('#instructText')?.value && !$('#newText').value) load({ quiet: true }); }, 60000);
+setInterval(() => { if (document.visibilityState === 'visible' && state.loaded && !state.busy && !$('#instructText')?.value && !$('#newText').value && !$('.date-edit[open]')) load({ quiet: true }); }, 60000);
 
 // 起動
 {
   const m = location.hash.match(/^#t=(.+)$/);
   if (m) state.openId = decodeURIComponent(m[1]);
   renderHeader();
-  renderBoard();
+  renderView();
   window.addEventListener('DOMContentLoaded', () => load());
 }
 </script>
