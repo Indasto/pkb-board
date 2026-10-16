@@ -379,6 +379,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .mail-private-note { color:var(--muted); font-size:13px; line-height:1.7; }
 @media(max-width:600px) { .mail-overview,.mail-card { padding:15px; } .mail-account { flex:1; } .mail-controls .select { flex:1; } }
 
+.note-card{border-top:1px solid var(--border);padding:16px 0;overflow-wrap:anywhere}.note-body{white-space:pre-wrap;margin:10px 0;line-height:1.6}.views{flex-wrap:wrap} #newMode{margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -389,6 +390,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
     <button class="view-btn" role="tab" data-view="schedule">Schedule</button>
     <button class="view-btn" role="tab" data-view="finance">Finance</button>
     <button class="view-btn" role="tab" data-view="mail">Mail</button>
+    <button class="view-btn" role="tab" data-view="notes">Notes</button>
   </nav>
   <div class="summary" id="summary"></div>
   <div class="top-actions">
@@ -400,6 +402,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 
 <main>
   <section class="composer">
+    <select id="newMode" class="select" aria-label="Task or Note"><option value="task">Task</option><option value="note">Note</option></select>
     <textarea id="newText" rows="1" placeholder="やることを書く…" aria-label="新しいタスク"></textarea>
     <div class="composer-row">
       <select id="newProject" class="select" aria-label="プロジェクト"></select>
@@ -420,6 +423,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   <div id="scheduleView" class="sched" hidden></div>
   <div id="financeView" hidden></div>
   <div id="mailView" hidden></div>
+  <div id="notesView" hidden></div>
 </main>
 
 <div id="overlay" class="overlay" hidden></div>
@@ -639,9 +643,10 @@ async function graphql(query, variables) {
   return r.data;
 }
 
-const LOAD_QUERY = `query($owner:String!,$name:String!,$tasks:String!,$inbox:String!,$projects:String!){
+const LOAD_QUERY = `query($owner:String!,$name:String!,$tasks:String!,$inbox:String!,$projects:String!,$memos:String!){
   repository(owner:$owner,name:$name){
     tasks: object(expression:$tasks){ ... on Tree { entries { name type object { ... on Tree { entries { name path oid object { ... on Blob { text } } } } } } } }
+    memos: object(expression:$memos){ ... on Tree { entries { name object { ... on Tree { entries { name object { ... on Tree { entries { name path object { ... on Blob { text } } } } } } } } } } }
     inbox: object(expression:$inbox){ ... on Blob { text } }
     projects: object(expression:$projects){ ... on Tree { entries { name type } } }
   }
@@ -654,7 +659,7 @@ async function load({ quiet = false } = {}) {
   $('#refreshBtn').classList.add('spin');
   try {
     const b = cfg.branch;
-    const data = await graphql(LOAD_QUERY, { owner, name, tasks: `${b}:tasks`, inbox: `${b}:INBOX.md`, projects: `${b}:projects` });
+    const data = await graphql(LOAD_QUERY, { owner, name, tasks: `${b}:tasks`, inbox: `${b}:INBOX.md`, projects: `${b}:projects`, memos: `${b}:memos` });
     if (!data.repository) throw new Error(`リポジトリ ${cfg.repo} が見つかりません`);
     if (!data.repository.tasks) throw new Error(`ブランチ ${b} に tasks/ がありません`);
     const tasks = [];
@@ -671,6 +676,7 @@ async function load({ quiet = false } = {}) {
     }
     tasks.sort((a, b) => (b.meta.updated || '').localeCompare(a.meta.updated || '') || b.meta.id.localeCompare(a.meta.id));
     state.tasks = tasks;
+    notes.items=[];for(const y of data.repository.memos?.entries||[])for(const month of y.object?.entries||[])for(const f of month.object?.entries||[]){if(f.object?.text&&f.name.endsWith(".md")){const p=parseTask(f.object.text);if(p.meta.id)notes.items.push({...p,path:f.path,raw:f.object.text});}}notes.items.sort((a,b)=>b.meta.created.localeCompare(a.meta.created));
     const projDirs = (data.repository.projects?.entries || []).filter((e) => e.type === 'tree').map((e) => e.name);
     state.projects = [...new Set([...projDirs, ...tasks.map((t) => t.meta.project).filter(Boolean)])].sort();
     const inboxText = data.repository.inbox?.text || '';
@@ -756,6 +762,7 @@ async function runOp(btn, fn, okMsg) {
 }
 
 async function addTask() {
+  if($('#newMode').value==='note')return addNote();
   const raw = $('#newText').value.replace(/\r\n/g, '\n').trim();
   if (!raw) { $('#newText').focus(); return; }
   const lines = raw.split('\n');
@@ -1106,15 +1113,16 @@ function renderView() {
   const sched = state.view === 'schedule';
   const fin = state.view === 'finance';
   const mailView = state.view === 'mail';
+  const noteView=state.view==='notes';$('#notesView').hidden=!noteView;
   $('#mailView').hidden = !mailView;
-  $('#boardView').hidden = sched || fin || mailView;
+  $('#boardView').hidden = sched || fin || mailView || noteView;
   $('#financeView').hidden = !fin;
   $('.composer').hidden = fin || mailView;
   $('#projectFilter').hidden = fin || mailView;
   $('#summary').hidden = fin || mailView;
   $('#scheduleView').hidden = !sched;
   document.querySelectorAll('.view-btn').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === state.view)));
-  if (mailView) renderMail(); else if (fin) renderFinance(); else if (sched) renderSchedule(); else renderBoard();
+  if (noteView) renderNotes(); else if (mailView) renderMail(); else if (fin) renderFinance(); else if (sched) renderSchedule(); else renderBoard();
 }
 function openSheet(id) {
   state.openId = id;
@@ -1396,6 +1404,21 @@ $('#mailView').addEventListener('click',e=>{
 $('#mailView').addEventListener('input',e=>{if(e.target.id==='mailQuery'){mail.query=e.target.value;mail.shown=30;renderMailItems();}});
 $('#mailView').addEventListener('change',e=>{if(e.target.id==='mailStatus'){mail.status=e.target.value;mail.shown=30;renderMailItems();}});
 
+
+// Notes: Git-backed daily memos. No personal data belongs here.
+const notes={items:[],query:'',filter:'open'};
+function memoText(meta,body){return '---\n'+Object.entries(meta).map(([k,v])=>k+': '+String(v??'').replace(/[\r\n]/g,' ')).join('\n')+'\n---\n'+body.trim()+'\n';}
+function setComposer(){const note=$('#newMode').value==='note';for(const id of ['newDate','newTime','newKind'])$('#'+id).hidden=note;$('#newText').placeholder=note?'日常のメモを書く（個人情報はprivateへ）…':'やることを書く…';$('#newText').setAttribute('aria-label',note?'New note':'New task');$('#addBtn').textContent=note?'Add note':'Add task';}
+async function addNote(){const body=$('#newText').value.trim();if(!body)return;const project=$('#newProject').value;await runOp($('#addBtn'),()=>commit('web: add note',async({readFile})=>{const id=new Date().toISOString().replace(/[-:TZ.]/g,'')+'-'+crypto.randomUUID().slice(0,8),ts=new Date().toISOString(),path=`memos/${ts.slice(0,4)}/${ts.slice(5,7)}/${id}.md`;if(await readFile(path))throw Error('ID conflict');return[{path,content:memoText({id,created:ts,updated:ts,project,state:'open'},body)}];}).then(()=>{$('#newText').value='';autoGrow();}),'Note added');}
+function renderNotes(){const el=$('#notesView');el.innerHTML=`<section class="panel"><div class="composer-row"><h2 style="margin-right:auto">Notes</h2><input type="search" id="noteQuery" class="select" aria-label="Search notes" placeholder="Search notes" value="${esc(notes.query)}"><select id="noteState" class="select" aria-label="Note state">${['open','tasked','kept','archived','all'].map(s=>`<option value="${s}" ${s===notes.filter?'selected':''}>${s[0].toUpperCase()+s.slice(1)}</option>`).join('')}</select></div><p class="notice" style="margin:8px 0">日常メモを残し、必要になったらTaskへ。調べた知識はKeep。個人情報は書かないでください。</p><div id="noteList"></div></section>`;renderNoteList();}
+function renderNoteList(){const items=notes.items.filter(m=>(notes.filter==='all'||m.meta.state===notes.filter)&&(!state.filter||m.meta.project===state.filter)&&(!notes.query||(m.body+' '+m.meta.project).toLowerCase().includes(notes.query.toLowerCase())));$('#noteList').innerHTML=items.length?items.map(m=>`<article class="note-card" data-note-id="${esc(m.meta.id)}"><small>${esc(m.meta.created)} ${m.meta.project?'#'+esc(m.meta.project):''} · ${esc(m.meta.state)}</small><div class="note-body">${esc(m.body.trim().slice(0,800))}</div><div class="composer-row">${m.meta.state==='open'?'<button class="btn" data-note-action="task">→ Task</button><button class="btn" data-note-action="keep">Keep</button>':''}${m.meta.task?`<button class="btn" data-note-task="${esc(m.meta.task)}">Open task</button>`:''}${m.meta.knowledge?`<small>${esc(m.meta.knowledge)}</small>`:''}<button class="btn" data-note-action="edit">Edit</button>${m.meta.state!=='archived'?'<button class="btn" data-note-action="archive">Archive</button>':''}</div></article>`).join(''):'<p class="notice" style="margin:20px 0">No notes</p>';}
+function noteDialog(m,action){const d=document.createElement('dialog');d.innerHTML=`<form class="dlg"><h2>${action==='task'?'→ Task':'Edit note'}</h2><label>Text<textarea name="body" rows="8" style="width:100%" required>${esc(m.body.trim())}</textarea></label>${action==='task'?'<label>Due date<input name="due" type="date"></label>':''}<p class="notice">個人情報は保存しないでください。</p><div class="dlg-actions"><button class="btn" type="button" data-cancel>Cancel</button><button class="btn primary">Save</button></div><p data-error role="alert"></p></form>`;document.body.append(d);d.querySelector('[data-cancel]').onclick=()=>d.close();d.onclose=()=>d.remove();d.querySelector('form').onsubmit=async e=>{e.preventDefault();const body=d.querySelector('[name=body]').value.trim(),due=d.querySelector('[name=due]')?.value;if(!body)return;d.querySelector('button.primary').disabled=true;try{await saveMemo(m,action,{body,due});d.close();await load();}catch(e){d.querySelector('[data-error]').textContent=e.message;d.querySelector('button.primary').disabled=false;}};d.showModal();}
+async function saveMemo(m,action,opts={}){await commit('web: note '+action,async({readFile})=>{const text=await readFile(m.path);if(text==null)throw Error('Memo missing');if(text!==m.raw)throw Error('他の端末で変更されています。再読み込みしてください。');const {meta,body:old}=parseTask(text),body=opts.body??old,out=[];if(['task','keep'].includes(action)&&meta.state!=='open')throw Error('Only open notes can be converted');meta.updated=new Date().toISOString();if(action==='task'){const id=newId(new Set(state.tasks.map(t=>t.meta.id))),title=body.trim().split('\n')[0].slice(0,120),ts=nowStr(),tm={id,title,status:'inbox',project:meta.project||'',owner:'',created:ts,updated:ts};if(opts.due)tm.due=opts.due;out.push({path:`tasks/0_inbox/${id}_${slug(title)}.md`,content:serializeTask(tm,`\n## 内容\n${body.trim()}\n\n元メモ: ${m.path}\n\n## 完了条件\n\n## 指示\n\n## 結果・メモ\n\n## ログ\n- ${ts} [user] メモから作成\n`)});meta.state='tasked';meta.task=id;}if(action==='keep'){const path=`notes/memo-${meta.id}.md`;if(await readFile(path))throw Error('Knowledge file already exists');out.push({path,content:body.trim()+'\n\n元メモ: '+m.path+'\n'});meta.state='kept';meta.knowledge=path;}if(action==='archive')meta.state='archived';out.push({path:m.path,content:memoText(meta,body)});return out;});}
+$('#newMode').onchange=setComposer;
+$('#notesView').addEventListener('input',e=>{if(e.target.id==='noteQuery'){notes.query=e.target.value;renderNoteList();}});
+$('#notesView').addEventListener('change',e=>{if(e.target.id==='noteState'){notes.filter=e.target.value;renderNoteList();}});
+$('#notesView').addEventListener('click',e=>{const t=e.target.closest('[data-note-task]');if(t){openSheet(t.dataset.noteTask);return;}const b=e.target.closest('[data-note-action]');if(!b)return;const m=notes.items.find(m=>m.meta.id===b.closest('[data-note-id]').dataset.noteId),a=b.dataset.noteAction;if(['edit','task'].includes(a))noteDialog(m,a);else runOp(b,()=>saveMemo(m,a),'Note updated');});
+setComposer();
 
 // 起動
 {
