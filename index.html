@@ -1253,7 +1253,7 @@ $('#scheduleView').addEventListener('change', (e) => {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.loaded && !state.busy) load({ quiet: true }); });
 setInterval(() => { if (document.visibilityState === 'visible' && state.loaded && !state.busy && !$('#instructText')?.value && !$('#newText').value && !$('.date-edit[open]')) load({ quiet: true }); }, 60000);
 
-// Remote Finance: only device registration is persisted; unlocked data stays in memory.
+// Finance and Mail share one vault session. Only device registration is persisted.
 const vaultTest=new URLSearchParams(location.search).get('vault-test')==='1';
 const FINANCE_LOCAL=LOCAL&&!vaultTest;
 const vaultBranch=vaultTest?'vault-test':'vault',vaultInbox=vaultTest?'vault-inbox-test':'vault-inbox';
@@ -1264,18 +1264,57 @@ async function vaultTree(branch){const base=`/repos/${owner}/${name}`;let ref;tr
 async function vaultBlob(sha){if(!sha)throw Error('まだ同期されていません。メインPCでvault syncを実行してください。');const r=await gh(`/repos/${owner}/${name}/git/blobs/${sha}`);return JSON.parse(b64decode(r.content));}
 async function vaultSnapshot(){const t=await vaultTree(vaultBranch);if(!t.head)throw Error('メインPCでinitとadd-deviceを実行してください。');return{...t,header:await vaultBlob(t.files['keys.json'])};}
 async function vaultInboxCommit(build){const base=`/repos/${owner}/${name}`;for(let n=0;n<5;n++){const cur=await vaultTree(vaultInbox),changes=await build(cur);if(!changes.length)return;const old=cur.head?await gh(base+'/git/commits/'+cur.head):null;const tree=await gh(base+'/git/trees',{method:'POST',body:{...(old?{base_tree:old.tree.sha}:{}),tree:changes.map(c=>({path:c.path,mode:'100644',type:'blob',content:c.content}))}});const c=await gh(base+'/git/commits',{method:'POST',body:{message:'vault: encrypted device submission',tree:tree.sha,parents:cur.head?[cur.head]:[]}});try{if(cur.head)await gh(base+'/git/refs/heads/'+vaultInbox,{method:'PATCH',body:{sha:c.sha,force:false}});else await gh(base+'/git/refs',{method:'POST',body:{ref:'refs/heads/'+vaultInbox,sha:c.sha}});return;}catch(e){if(![409,422].includes(e.status)||n===4)throw e;}}}
-function lockVault(message=''){vault.session++;vault.key=null;vault.header=null;finance.data=null;finance.loading=false;vault.error=message;const d=$('#financeDialog');if(d.open)d.close();d.innerHTML='';$('#financeView').replaceChildren();if(state.view==='finance')renderFinance();}
-async function initVaultDevice(){if(FINANCE_LOCAL||vault.ready)return;vault.ready=true;try{vault.device=await deviceDB('get');}catch(e){vault.error=e.message;}if(state.view==='finance')renderFinance();}
-function renderVaultGate(){const el=$('#financeView');el.innerHTML=`<section class="panel vault-gate"><h2>Finance · Encrypted vault</h2><p>財務データは登録した端末で、合言葉を入力すると開けます。</p>${vault.error?`<p class="error-box" role="alert">${esc(vault.error)}</p>`:''}${!LOCAL&&!cfg.token?'<p>先にGitHubとの接続を設定してください。</p><button class="btn" data-vault-settings>Connection settings</button>':vault.device?'<form id="vaultUnlock"><label class="field"><span>Passphrase</span><input type="password" name="passphrase" autocomplete="off" required aria-label="Passphrase"></label><button class="btn primary" '+(vault.busy?'disabled':'')+'>Unlock</button></form><button class="btn" data-vault-forget>Forget this device</button>':'<form id="vaultRegister"><label class="field"><span>Registration code</span><textarea name="code" rows="4" autocomplete="off" required aria-label="Registration code"></textarea></label><button class="btn primary" '+(vault.busy?'disabled':'')+'>Register this device</button></form><p>メインPCで <code>node scripts/finance/vault.mjs add-device phone</code> を実行し、表示された登録コードをここへ貼り付けてください。登録コードは共有しないでください。</p>'}<p class="finance-note">合言葉は保存しません。5分間操作がないと自動ロックします。ブラウザを切り替えた場合もロックします。</p></section>`;initVaultDevice();}
+function renderVaultView(){if(state.view==='mail')renderMail();else if(state.view==='finance')renderFinance();}
+function lockVault(message=''){
+  vault.session++;vault.key=null;vault.header=null;vault.files=null;vault.head=null;
+  finance.data=null;finance.loading=false;finance.error='';
+  mail.data=null;mail.loading=false;mail.error='';mail.query='';mail.status='all';mail.shown=30;
+  vault.error=message;const d=$('#financeDialog');if(d.open)d.close();d.innerHTML='';
+  $('#financeView').replaceChildren();$('#mailView').replaceChildren();renderVaultView();
+}
+async function initVaultDevice(){if(FINANCE_LOCAL||vault.ready)return;vault.ready=true;try{vault.device=await deviceDB('get');}catch(e){vault.error=e.message;}renderVaultView();}
+function renderVaultGate(view='finance'){
+  const el=$(view==='mail'?'#mailView':'#financeView');
+  $(view==='mail'?'#financeView':'#mailView').replaceChildren();
+  el.innerHTML=`<section class="panel vault-gate"><h2>${view==='mail'?'Mail':'Finance'} · Encrypted vault</h2><p>財務データとメール要約は登録した端末で、同じ合言葉を入力すると開けます。</p>${vault.error?`<p class="error-box" role="alert">${esc(vault.error)}</p>`:''}${!LOCAL&&!cfg.token?'<p>先にGitHubとの接続を設定してください。</p><button class="btn" data-vault-settings>Connection settings</button>':vault.device?'<form id="vaultUnlock"><label class="field"><span>Passphrase</span><input type="password" name="passphrase" autocomplete="off" required aria-label="Passphrase"></label><button class="btn primary" '+(vault.busy?'disabled':'')+'>Unlock</button></form><button class="btn" data-vault-forget>Forget this device</button>':'<form id="vaultRegister"><label class="field"><span>Registration code</span><textarea name="code" rows="4" autocomplete="off" required aria-label="Registration code"></textarea></label><button class="btn primary" '+(vault.busy?'disabled':'')+'>Register this device</button></form><p>メインPCで <code>node scripts/finance/vault.mjs add-device phone</code> を実行し、表示された登録コードをここへ貼り付けてください。登録コードは共有しないでください。</p>'}<p class="finance-note">合言葉は保存しません。5分間操作がないと自動ロックします。ブラウザを切り替えた場合もロックします。</p></section>`;initVaultDevice();
+}
 async function registerVault(code){const device=VC.registration(code,cfg.repo),snapshot=await vaultSnapshot(),entry=snapshot.header.devices?.find(d=>d.id===device.id);if(!entry||entry.claimHash!==await VC.digest(VC.unb64(device.claim)))throw Error('登録コードが無効か、端末が無効化されています。');await vaultInboxCommit(cur=>{const path='devices/'+device.id+'.used';if(cur.files[path])throw Error('この登録コードは使用済みです。メインPCで新しい端末を追加してください。');return[{path,content:JSON.stringify({v:1})}];});const saved={id:device.id,secret:device.secret};await deviceDB('put',saved);vault.device=saved;}
-async function unlockVault(pass){const session=vault.session,snapshot=await vaultSnapshot(),key=await VC.unlock(pass,vault.device,snapshot.header),data=VC.json(await VC.open(key,await vaultBlob(snapshot.files['finance.enc']),'finance','finance.enc',snapshot.header.epoch));if(session!==vault.session)return;if(!Array.isArray(data.transactions)||!Array.isArray(data.recurring)||!Array.isArray(data.bills))throw Error('Invalid Finance snapshot');vault.key=key;vault.header=snapshot.header;vault.files=snapshot.files;vault.head=snapshot.head;finance.data=data;vault.lastActivity=Date.now();vault.error='';}
-async function refreshVault(){if(!vault.key){renderFinance();return;}const session=vault.session;finance.loading=true;finance.error='';try{const snapshot=await vaultSnapshot();if(snapshot.header.epoch!==vault.header.epoch||!snapshot.header.devices.some(d=>d.id===vault.device.id)){lockVault('鍵が更新されました。合言葉で解錠し直してください。');return;}const data=VC.json(await VC.open(vault.key,await vaultBlob(snapshot.files['finance.enc']),'finance','finance.enc',snapshot.header.epoch));if(session!==vault.session)return;finance.data=data;vault.header=snapshot.header;vault.files=snapshot.files;vault.head=snapshot.head;vault.pending=vault.pending.filter(id=>!data.applied.includes(id));}catch(e){finance.error=e.message;}finally{if(session===vault.session){finance.loading=false;if(state.view==='finance')renderFinance();}}}
+async function readVaultData(key,snapshot){
+  const data=VC.json(await VC.open(key,await vaultBlob(snapshot.files['finance.enc']),'finance','finance.enc',snapshot.header.epoch));
+  if(!Array.isArray(data.transactions)||!Array.isArray(data.recurring)||!Array.isArray(data.bills)||!Array.isArray(data.applied))throw Error('Invalid Finance snapshot');
+  // Older snapshots remain usable for Finance; Mail asks for a sync explicitly.
+  const mailData=snapshot.files['mail.enc']?VC.json(await VC.open(key,await vaultBlob(snapshot.files['mail.enc']),'mail','mail.enc',snapshot.header.epoch)):null;
+  if(mailData&&(!Array.isArray(mailData.accounts)||mailData.accounts.length!==3||['shukatsu','sub','main'].some(id=>!mailData.accounts.some(a=>a.id===id&&Array.isArray(a.items)))))throw Error('Invalid Mail snapshot');
+  return{data,mailData};
+}
+function applyVaultData(snapshot,key,{data,mailData}){
+  vault.key=key;vault.header=snapshot.header;vault.files=snapshot.files;vault.head=snapshot.head;
+  finance.data=data;finance.error='';mail.data=mailData;
+  mail.error=mailData?'':'メール要約はまだ同期されていません。メインPCでvault syncを実行してください。';
+  vault.error='';
+}
+async function unlockVault(pass){
+  const session=vault.session,snapshot=await vaultSnapshot(),key=await VC.unlock(pass,vault.device,snapshot.header),result=await readVaultData(key,snapshot);
+  if(session!==vault.session)return;applyVaultData(snapshot,key,result);vault.lastActivity=Date.now();
+}
+async function refreshVault(){
+  if(!vault.key){renderVaultView();return;}if(finance.loading||mail.loading)return;
+  const session=vault.session;finance.loading=true;mail.loading=true;finance.error='';mail.error='';
+  try{
+    const snapshot=await vaultSnapshot();
+    if(session!==vault.session)return;
+    if(snapshot.header.epoch!==vault.header.epoch||!snapshot.header.devices.some(d=>d.id===vault.device.id)){lockVault('鍵が更新されました。合言葉で解錠し直してください。');return;}
+    const result=await readVaultData(vault.key,snapshot);
+    if(session!==vault.session)return;applyVaultData(snapshot,vault.key,result);vault.pending=vault.pending.filter(id=>!result.data.applied.includes(id));
+  }catch{if(session===vault.session)lockVault('同期データを確認できません。接続と端末の有効状態を確認し、解錠し直してください。');}
+  finally{if(session===vault.session){finance.loading=false;mail.loading=false;renderVaultView();}}
+}
 async function submitVault(payload){if(!vault.key)throw Error('先にUnlockしてください。');const session=vault.session,snapshot=await vaultSnapshot();if(snapshot.header.epoch!==vault.header.epoch||!snapshot.header.devices.some(d=>d.id===vault.device.id)){lockVault('鍵が更新されました。解錠し直してください。');throw Error('Vault changed');}const itemId=crypto.randomUUID(),path=`inbox/${vault.device.id}/${itemId}.enc`;const envelope=await VC.seal(vault.key,VC.bytes(JSON.stringify({v:1,itemId,...payload})),'inbox',path,vault.header.epoch),signed=await VC.authenticate(vault.device.secret,path,envelope);if(session!==vault.session)throw Error('Vault locked');await vaultInboxCommit(cur=>{if(cur.files[path])throw Error('Duplicate inbox item');return[{path,content:JSON.stringify(signed)}];});if(session===vault.session){vault.pending.push(itemId);toast('Encrypted · メインPCが同期すると反映されます');}return{queued:true};}
 async function remoteFinanceRequest(endpoint,options={}){if(endpoint==='state')return refreshVault();const p=JSON.parse(options.body),allowed=['date','amount','direction','book','category','counterparty','method','status','memo'],fields=Object.fromEntries(allowed.filter(k=>k in p).map(k=>[k,p[k]]));if(endpoint==='receipts')return submitVault({operation:'receipt',book:p.book,base64:p.base64});if(endpoint==='transactions')return submitVault({operation:'create',row:fields});if(/^transactions\/[a-zA-Z0-9_-]{1,100}$/.test(endpoint))return submitVault({operation:'edit',id:endpoint.split('/')[1],revision:p.revision,patch:fields});throw Error('Unsupported Finance operation');}
 async function resizedReceipt(file){const image=await createImageBitmap(file);try{if(image.width*image.height>50000000)throw Error('画像が大きすぎます');const scale=Math.min(1,2000/Math.max(image.width,image.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.82));if(!blob||blob.size>8*1024*1024)throw Error('圧縮後の画像は8MB以下にしてください');return VC.b64(new Uint8Array(await blob.arrayBuffer()));}finally{image.close();}}
 async function remoteReceipt(ref){if(!vault.key)throw Error('Vault locked');const session=vault.session,path=finance.data.receiptMap[ref];if(!path||!/^receipts\/[a-f0-9]{64}\.enc$/.test(path))throw Error('Receipt not found');const bytes=await VC.open(vault.key,await vaultBlob(vault.files[path]),'receipt',path,vault.header.epoch);if(session!==vault.session)throw Error('Vault locked');const ext=ref.split('.').pop();return new Blob([bytes],{type:'image/'+(ext==='jpg'?'jpeg':ext)});}
-$('#financeView').addEventListener('click',async e=>{try{if(e.target.closest('[data-vault-settings]'))openSettings();if(e.target.closest('[data-vault-lock]'))lockVault();if(e.target.closest('[data-vault-forget]')){await deviceDB('delete');vault.device=null;lockVault();}const b=e.target.closest('[data-vault-sync]');if(b){b.disabled=true;try{const r=await fetch('/local/vault/sync',{method:'POST',headers:{'X-PKB':'1'}}),data=await r.json();if(!r.ok)throw Error(data.error||'Sync failed');toast(data.pushed?'Encrypted snapshot synced':'No changes');}finally{b.disabled=false;}}}catch(e){toast(e.message,true);}});
-$('#financeView').addEventListener('submit',async e=>{if(!['vaultRegister','vaultUnlock'].includes(e.target.id))return;e.preventDefault();const form=e.target,field=form.querySelector('textarea,input'),value=field.value;field.value='';vault.busy=true;vault.error='';const button=form.querySelector('button');button.disabled=true;try{if(form.id==='vaultRegister')await registerVault(value);else await unlockVault(value);}catch{vault.error='登録または解錠に失敗しました。合言葉・登録コード・接続・端末の有効状態を確認してください。';}finally{vault.busy=false;renderFinance();}});
+for(const view of ['#financeView','#mailView'])$(view).addEventListener('click',async e=>{try{if(e.target.closest('[data-vault-settings]'))openSettings();if(e.target.closest('[data-vault-lock]'))lockVault();if(e.target.closest('[data-vault-forget]')){await deviceDB('delete');vault.device=null;lockVault();}const b=e.target.closest('[data-vault-sync]');if(b){b.disabled=true;try{const r=await fetch('/local/vault/sync',{method:'POST',headers:{'X-PKB':'1'}}),data=await r.json();if(!r.ok)throw Error(data.error||'Sync failed');toast(data.pushed?'Encrypted snapshot synced':'No changes');}finally{b.disabled=false;}}}catch(e){toast(e.message,true);}});
+for(const view of ['#financeView','#mailView'])$(view).addEventListener('submit',async e=>{if(!['vaultRegister','vaultUnlock'].includes(e.target.id))return;e.preventDefault();const form=e.target,field=form.querySelector('textarea,input'),value=field.value;field.value='';vault.busy=true;vault.error='';const button=form.querySelector('button');button.disabled=true;try{if(form.id==='vaultRegister')await registerVault(value);else await unlockVault(value);}catch{vault.error='登録または解錠に失敗しました。合言葉・登録コード・接続・端末の有効状態を確認してください。';}finally{vault.busy=false;renderVaultView();}});
 for(const event of ['pointerdown','keydown','input','scroll'])document.addEventListener(event,()=>{if(vault.key)vault.lastActivity=Date.now();},{passive:true});
 setInterval(()=>{if(vault.key&&Date.now()-vault.lastActivity>=5*60*1000)lockVault();},15000);
 document.addEventListener('visibilitychange',()=>{if(!FINANCE_LOCAL&&document.hidden&&(vault.key||vault.busy))lockVault();});window.addEventListener('pagehide',()=>{if(!FINANCE_LOCAL)lockVault();});
@@ -1394,7 +1433,7 @@ $('#financeDialog').addEventListener('click', async e => {
   } catch (err) { $('#financeFormError').hidden = false; $('#financeFormError').textContent = err.message; }
 });
 
-// Private mail summaries remain in memory. Never copy them to GitHub or browser storage.
+// Mail plaintext stays in memory; GitHub receives only authenticated vault ciphertext.
 const mail = { account:'shukatsu', data:null, loading:false, error:'', query:'', status:'all', shown:30 };
 const MAIL_LABELS = { shukatsu:'就活', sub:'サブ', main:'メイン' };
 const MAIL_STATUS = { action:'対応・判断が必要', waiting:'確認待ち', info:'記録・参考', resolved:'方針確認済み' };
@@ -1414,7 +1453,8 @@ function mailTaskButton(t) {
   return `<button class="btn mail-task-link" data-mail-task="${esc(t.meta.id)}">${esc(t.meta.title)}<small>${esc(label)}${t.meta.due?' · '+esc(dueLabel(t.meta.due,t.meta.kind)):''}${t.pending?' · 📩 指示あり':''}</small></button>`;
 }
 async function loadMail() {
-  if (!LOCAL||mail.loading) return;
+  if(!FINANCE_LOCAL)return refreshVault();
+  if(mail.loading) return;
   mail.loading=true;mail.error='';renderMail();
   try {
     const r=await fetch('/local/mail/state',{headers:{'X-PKB':'1'},cache:'no-store'});
@@ -1424,22 +1464,22 @@ async function loadMail() {
 }
 function renderMail() {
   const el=$('#mailView');
+  if(!FINANCE_LOCAL&&!vault.key){renderVaultGate('mail');return;}
   const accounts=['shukatsu','sub','main'];
   const account=mail.data?.accounts.find(a=>a.id===mail.account);
-  el.innerHTML=`<div class="mail-toolbar"><h2>Mail</h2><button class="btn" data-mail-refresh ${mail.loading?'disabled':''}>更新</button></div>
-    <div class="mail-accounts" role="tablist" aria-label="メールアカウント">${accounts.map(id=>`<button class="btn mail-account" role="tab" data-mail-account="${id}" aria-selected="${id===mail.account}">${MAIL_LABELS[id]}<small>${mail.data?.accounts.find(a=>a.id===id)?.imported?'要約あり':LOCAL?'未取り込み':'対応一覧'}</small></button>`).join('')}</div>
+  el.innerHTML=`<div class="mail-toolbar"><h2>Mail</h2>${!FINANCE_LOCAL?'<button class="btn" data-vault-lock>Lock</button>':''}<button class="btn" data-mail-refresh ${mail.loading?'disabled':''}>更新</button></div>
+    <div class="mail-accounts" role="tablist" aria-label="メールアカウント">${accounts.map(id=>`<button class="btn mail-account" role="tab" data-mail-account="${id}" aria-selected="${id===mail.account}">${MAIL_LABELS[id]}<small>${mail.data?.accounts.find(a=>a.id===id)?.imported?'要約あり':'未取り込み'}</small></button>`).join('')}</div>
     ${mail.error?`<p class="error-box" role="alert">${esc(mail.error)}</p>`:''}
-    <section class="panel mail-overview"><p>${esc(account?.overview||(!LOCAL?'メール本文・要約はメインPCのローカル版で表示します。この画面ではメールに関連するタスクを確認できます。':mail.loading?'メール要約を読み込んでいます…':'過去メールはまだ取り込まれていません。'))}</p>${account?.coverage?`<div class="mail-meta">${esc(account.coverage)}</div>`:''}${account?.updated?`<div class="mail-meta">更新 ${esc(account.updated)}</div>`:''}<div class="mail-private-note">通知はここにまとめ、必要な対応だけをタスクに紐付けます。予定・期限はScheduleにも表示します。</div></section>
+    <section class="panel mail-overview"><p>${esc(account?.overview||(mail.loading?'メール要約を読み込んでいます…':'過去メールはまだ取り込まれていません。'))}</p>${account?.coverage?`<div class="mail-meta">${esc(account.coverage)}</div>`:''}${account?.updated?`<div class="mail-meta">更新 ${esc(account.updated)}</div>`:''}<div class="mail-private-note">通知はここにまとめ、必要な対応だけをタスクに紐付けます。予定・期限はScheduleにも表示します。</div></section>
     <div id="mailTasks"></div>
-    ${LOCAL?'<div class="mail-controls"><input id="mailQuery" class="mail-search" type="search" placeholder="企業・サービス・件名・要約を検索" aria-label="メール要約を検索" value="'+esc(mail.query)+'"><select id="mailStatus" class="select" aria-label="メールの対応状況"><option value="all">すべての要約</option>'+Object.entries(MAIL_STATUS).map(([k,v])=>'<option value="'+k+'"'+(mail.status===k?' selected':'')+'>'+v+'</option>').join('')+'</select></div><div id="mailCount" class="mail-count"></div><div id="mailGrid" class="mail-grid"></div><div id="mailMore"></div>':''}`;
+    <div class="mail-controls"><input id="mailQuery" class="mail-search" type="search" placeholder="企業・サービス・件名・要約を検索" aria-label="メール要約を検索" value="${esc(mail.query)}"><select id="mailStatus" class="select" aria-label="メールの対応状況"><option value="all">すべての要約</option>${Object.entries(MAIL_STATUS).map(([k,v])=>'<option value="'+k+'"'+(mail.status===k?' selected':'')+'>'+v+'</option>').join('')}</select></div><div id="mailCount" class="mail-count"></div><div id="mailGrid" class="mail-grid"></div><div id="mailMore"></div>`;
   renderMailItems();
-  if(LOCAL&&!mail.data&&!mail.loading&&!mail.error)loadMail();
+  if(FINANCE_LOCAL&&!mail.data&&!mail.loading&&!mail.error)loadMail();
 }
 function renderMailItems() {
   const tasks=mailTasks();
   const action=tasks.filter(t=>t.meta.mail_role!=='reference'),reference=tasks.filter(t=>t.meta.mail_role==='reference');
   $('#mailTasks').innerHTML=[['対応・判断するタスク',action],['参考・未予約の候補',reference]].filter(([,ts])=>ts.length).map(([title,ts])=>`<details class="panel mail-task-group"><summary>${title} · ${ts.length}件</summary>${ts.map(mailTaskButton).join('')}</details>`).join('');
-  if(!LOCAL)return;
   const account=mail.data?.accounts.find(a=>a.id===mail.account),q=mail.query.trim().toLocaleLowerCase();
   const items=(account?.items||[]).map(x=>({...x,status:mailItemStatus(x)})).filter(x=>(mail.status==='all'||x.status===mail.status)&&(!q||[x.title,x.category,x.summary,...(x.details||[]),...(x.messages||[]).map(m=>m.subject)].join('\n').toLocaleLowerCase().includes(q))).sort((a,b)=>(b.status==='action')-(a.status==='action')||b.date.localeCompare(a.date));
   $('#mailCount').textContent=items.length?`${items.length}件の要約 · メールは企業・サービスごとに集約`:(account?.imported?'条件に一致する要約はありません。':'このアカウントはまだ取り込まれていません。');
@@ -1452,7 +1492,7 @@ function renderMailItems() {
 $('#mailView').addEventListener('click',e=>{
   const account=e.target.closest('[data-mail-account]');if(account){mail.account=account.dataset.mailAccount;mail.shown=30;mail.query='';mail.status='all';renderMail();return;}
   const task=e.target.closest('[data-mail-task]');if(task){openSheet(task.dataset.mailTask);return;}
-  if(e.target.closest('[data-mail-refresh]')){if(LOCAL)loadMail();load();}
+  if(e.target.closest('[data-mail-refresh]')){loadMail();load();}
   if(e.target.closest('[data-mail-more]')){mail.shown+=30;renderMailItems();}
 });
 $('#mailView').addEventListener('input',e=>{if(e.target.id==='mailQuery'){mail.query=e.target.value;mail.shown=30;renderMailItems();}});
