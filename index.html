@@ -1320,7 +1320,7 @@ setInterval(()=>{if(vault.key&&Date.now()-vault.lastActivity>=5*60*1000)lockVaul
 document.addEventListener('visibilitychange',()=>{if(!FINANCE_LOCAL&&document.hidden&&(vault.key||vault.busy))lockVault();});window.addEventListener('pagehide',()=>{if(!FINANCE_LOCAL)lockVault();});
 
 // Finance plaintext lives only in memory; remote writes are encrypted.
-const finance = { book: 'mra', month: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date()).slice(0, 7), data: null, loading: false, error: '' };
+const finance = { book: 'mra', month: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date()).slice(0, 7), data: null, loading: false, error: '', keibaAll: false };
 const yen = n => n === null || n === undefined ? '未入力' : new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(n === 0 ? 0 : n);
 const signed = r => r.direction === 'income' ? r.amount : r.direction === 'expense' ? -r.amount : 0;
 const financeSum = rows => rows.reduce((s, r) => s + signed(r), 0);
@@ -1349,6 +1349,25 @@ function financeChart(rows) {
     return `<g><title>${months[i]}: ${yen(v)}</title><rect x="${x}" y="${v >= 0 ? 100 - h : 100}" width="54" height="${Math.max(1,h)}" rx="3" fill="${v >= 0 ? '#38856c' : '#c16d43'}"/><text x="${x+27}" y="${v >= 0 ? 90-h : 116+h}" text-anchor="middle">${esc(yen(v))}</text><text x="${x+27}" y="195" text-anchor="middle">${months[i].slice(2)}</text></g>`;
   }).join('')}</svg>`;
 }
+function financeBooks() {
+  return `<div class="finance-books" role="tablist" aria-label="帳簿">${[['mra','MRA'],['personal','Personal'],['keiba','Keiba']].map(([id,label])=>`<button class="btn" role="tab" aria-selected="${finance.book===id}" data-fin-book="${id}">${label}</button>`).join('')}</div>`;
+}
+function renderKeibaFinance(el) {
+  const data = finance.data.keiba, all = data?.races || [], rows = all.filter(r=>finance.keibaAll || r.date.startsWith(finance.month));
+  const sum = key => rows.reduce((n,r)=>n+r[key],0), stake=sum('stake'), payout=sum('payout'), refund=sum('refund'), pending=sum('pendingGroups'), unknown=sum('unknownRefundGroups');
+  const venues={niigata:'新潟',kyoto:'京都',tokyo:'東京',sapporo:'札幌',hakodate:'函館',fukushima:'福島',nakayama:'中山',chukyo:'中京',hanshin:'阪神',kokura:'小倉'};
+  const net=pending?'未精算あり':yen(payout+refund-stake), rate=pending||!stake?'—':((payout+refund)/stake*100).toFixed(1)+'%';
+  const stats=[['購入',yen(stake)],['払戻 / 返還',yen(payout)+' / '+yen(refund)],['収支'+(unknown?'（申告ベース）':''),net],['回収率',rate]];
+  const totalStake=all.reduce((n,r)=>n+r.stake,0),totalPayout=all.reduce((n,r)=>n+r.payout+r.refund,0),totalPending=all.some(r=>r.pendingGroups);
+  el.innerHTML=`${FINANCE_LOCAL?'<button class="btn" data-vault-sync>Sync vault</button>':'<div class="panel finance-note">最終同期: '+esc(finance.data.syncedAt||'未同期')+' <button class="btn" data-vault-lock>Lock</button></div>'}
+    <div class="finance-toolbar">${financeBooks()}<label>Month <input class="select" type="month" id="financeMonth" value="${esc(finance.month)}" ${finance.keibaAll?'disabled':''}></label><button class="btn" data-keiba-range aria-pressed="${finance.keibaAll}">${finance.keibaAll?'月別に戻る':'全期間'}</button><button class="btn" data-fin-refresh ${finance.loading?'disabled':''}>Refresh</button>${FINANCE_LOCAL?'<label class="btn finance-upload">購入CSVを取り込む<input type="file" id="keibaCsv" accept=".csv,text/csv" hidden></label>':''}</div>
+    ${finance.error?`<p class="error-box" role="alert">${esc(finance.error)}</p>`:''}
+    <p class="finance-note">競馬の購入・払戻・返還のみ。入出金やPersonal帳簿は合算しません。回収率＝（払戻＋返還）÷購入額。未精算を不的中として扱いません。${unknown?'返還が未確認の記録を含むため申告ベースです。':''}</p>
+    <div class="finance-stats">${stats.map(([label,value])=>`<section class="panel"><h3>${label}</h3><strong>${esc(value)}</strong></section>`).join('')}</div>
+    <section class="panel"><h3>通算</h3><p>購入 ${yen(totalStake)} · 払戻・返還 ${yen(totalPayout)} · 収支 ${totalPending?'未精算あり':yen(totalPayout-totalStake)}</p><p class="finance-note">${all.some(r=>r.unknownRefundGroups)?'返還未確認を含む申告ベース。':''} ${sum('hitGroups')}的中グループ / ${sum('groups')}購入グループ（選択期間）。レース数 ${rows.length}。</p></section>
+    <section class="panel"><h3>レース別 · ${finance.keibaAll?'全期間':esc(finance.month)}</h3><div class="finance-table-wrap"><table class="finance-table"><thead><tr><th>開催日 / レース</th><th>購入</th><th>払戻 / 返還</th><th>収支 / 回収率</th><th>確認状態</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr><td>${esc(r.date)}<small>${esc(venues[r.venue]||r.venue)} ${esc(r.race)}R · ${esc(r.tickets)}点</small></td><td>${yen(r.stake)}</td><td>${yen(r.payout)}<small>返還 ${r.unknownRefundGroups?'未確認':yen(r.refund)}</small></td><td>${r.net===null?'未精算':yen(r.net)}<small>${r.returnRate===null?'—':r.returnRate.toFixed(1)+'%'}</small></td><td>${r.pendingGroups?'未精算あり':r.verification==='verified'?'照合済み':'本人申告'}${r.unknownRefundGroups?'<small>返還未確認</small>':''}</td></tr>`).join(''):`<tr><td colspan="5">${data?'この期間の購入記録はありません。':'競馬データは未同期です。メインPCからvaultを同期してください。'}</td></tr>`}</tbody></table></div></section>
+    <section class="panel"><h3>買い目の入力を減らす</h3><p>JRA投票照会の「通常投票」CSVをメインPCで取り込めます。保存前に件数と重複を確認します。手入力と同じレースがある場合は、照合するまで追加しません。</p><p>画像の場合は購入完了画面や馬券の写真を送ってください。読めない箇所を確認してから記録します。</p><a href="https://www.jra.go.jp/dento/tohyo/service.html" target="_blank" rel="noopener noreferrer">JRA投票照会（過去60日・当日21時以降更新）</a></section>`;
+}
 function renderFinance() {
   const el = $('#financeView');
   if(!FINANCE_LOCAL&&!vault.key){renderVaultGate();return;}
@@ -1357,6 +1376,7 @@ function renderFinance() {
     if (!finance.loading && !finance.error) loadFinance();
     return;
   }
+  if (finance.book === 'keiba') { renderKeibaFinance(el); return; }
   const all = finance.data.transactions.filter(r => r.book === finance.book), monthRows = all.filter(r => r.date.startsWith(finance.month));
   const confirmed = all.filter(r => r.status === 'confirmed' && r.currency === 'jpy' && r.amount !== null);
   const current = confirmed.filter(r => r.date.startsWith(finance.month));
@@ -1374,7 +1394,7 @@ function renderFinance() {
   const rules = finance.data.recurring.filter(r => r.book === finance.book && r.active !== false);
   const reviews = all.filter(r => r.status === 'needs_review');
   const list = monthRows.slice().sort((a,b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
-  el.innerHTML = `${FINANCE_LOCAL?'<button class="btn" data-vault-sync>Sync vault</button>':'<div class="panel finance-note">メインPCが同期すると反映されます（最終同期: '+esc(finance.data.syncedAt||'未同期')+'）。送信待ち: '+vault.pending.length+'件 <button class="btn" data-vault-lock>Lock</button></div>'}<div class="finance-toolbar"><div class="finance-books" role="tablist" aria-label="帳簿"><button class="btn" role="tab" aria-selected="${finance.book === 'mra'}" data-fin-book="mra">MRA</button><button class="btn" role="tab" aria-selected="${finance.book === 'personal'}" data-fin-book="personal">Personal</button></div><label>Month <input class="select" type="month" id="financeMonth" value="${esc(finance.month)}"></label><button class="btn" data-fin-refresh ${finance.loading ? 'disabled' : ''}>Refresh</button><button class="btn primary" data-fin-add>Add transaction</button><label class="btn finance-upload">Add receipt<input type="file" id="financeReceipt" accept="image/jpeg,image/png,image/webp" hidden></label></div>
+  el.innerHTML = `${FINANCE_LOCAL?'<button class="btn" data-vault-sync>Sync vault</button>':'<div class="panel finance-note">メインPCが同期すると反映されます（最終同期: '+esc(finance.data.syncedAt||'未同期')+'）。送信待ち: '+vault.pending.length+'件 <button class="btn" data-vault-lock>Lock</button></div>'}<div class="finance-toolbar">${financeBooks()}<label>Month <input class="select" type="month" id="financeMonth" value="${esc(finance.month)}"></label><button class="btn" data-fin-refresh ${finance.loading ? 'disabled' : ''}>Refresh</button><button class="btn primary" data-fin-add>Add transaction</button><label class="btn finance-upload">Add receipt<input type="file" id="financeReceipt" accept="image/jpeg,image/png,image/webp" hidden></label></div>
     ${finance.error ? `<p class="error-box" role="alert">${esc(finance.error)}</p>` : ''}
     <p class="finance-note">実績は確定済みの円取引のみ。振替は収支に含めません。見込みは未確定取引を加算し、将来の売上は予測しません。</p>
     <div class="finance-stats">${stats.map(([label,value]) => `<section class="panel"><h3>${label}</h3><strong>${yen(value)}</strong></section>`).join('')}</div>
@@ -1405,12 +1425,26 @@ function editFinance(id) {
 $('#financeView').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.finBook) { finance.book = b.dataset.finBook; renderFinance(); }
+  if (b.hasAttribute('data-keiba-range')) { finance.keibaAll = !finance.keibaAll; renderFinance(); }
   if (b.hasAttribute('data-fin-refresh')) loadFinance();
   if (b.hasAttribute('data-fin-add')) editFinance();
   if (b.dataset.finEdit) editFinance(b.dataset.finEdit);
 });
 $('#financeView').addEventListener('change', async e => {
   if (e.target.id === 'financeMonth' && /^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)) { finance.month = e.target.value; renderFinance(); }
+  if (e.target.id === 'keibaCsv' && e.target.files[0] && FINANCE_LOCAL) {
+    const file=e.target.files[0]; e.target.value='';
+    if(file.size>2*1024*1024){finance.error='CSVは2MB以下にしてください';renderFinance();return;}
+    try{
+      const base64=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(fr.result.split(',')[1]);fr.onerror=()=>reject(Error('CSVを読めません'));fr.readAsDataURL(file);});
+      const p=await financeRequest('keiba/import',{method:'POST',body:JSON.stringify({base64})});
+      if(p.conflicts.length)throw Error(p.conflicts.join('。'));
+      if(!p.added&&!p.updated){alert('取り込み済みです。追加はありません。');return;}
+      if(!confirm(`CSV ${p.rows}行：新規 ${p.added}件、精算更新 ${p.updated}件、重複 ${p.duplicates}件。保存しますか？`))return;
+      await financeRequest('keiba/import',{method:'POST',body:JSON.stringify({base64,digest:p.digest})});await loadFinance();
+    }catch(err){finance.error=err.message;renderFinance();}
+    return;
+  }
   if (e.target.id !== 'financeReceipt' || !e.target.files[0]) return;
   const file = e.target.files[0];
   if (file.size > (FINANCE_LOCAL?8:25) * 1024 * 1024) { finance.error = '画像は8MB以下にしてください'; renderFinance(); return; }
