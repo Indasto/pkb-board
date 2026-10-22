@@ -1354,6 +1354,7 @@ function financeBooks() {
 }
 function renderKeibaFinance(el) {
   const data = finance.data.keiba, all = data?.races || [], rows = all.filter(r=>finance.keibaAll || r.date.startsWith(finance.month));
+  const reviews = (data?.reviews || []).filter(r=>finance.keibaAll || r.date.startsWith(finance.month));
   const sum = key => rows.reduce((n,r)=>n+r[key],0), stake=sum('stake'), payout=sum('payout'), refund=sum('refund'), pending=sum('pendingGroups'), unknown=sum('unknownRefundGroups');
   const venues={niigata:'新潟',kyoto:'京都',tokyo:'東京',sapporo:'札幌',hakodate:'函館',fukushima:'福島',nakayama:'中山',chukyo:'中京',hanshin:'阪神',kokura:'小倉'};
   const net=pending?'未精算あり':yen(payout+refund-stake), rate=pending||!stake?'—':((payout+refund)/stake*100).toFixed(1)+'%';
@@ -1366,7 +1367,8 @@ function renderKeibaFinance(el) {
     <div class="finance-stats">${stats.map(([label,value])=>`<section class="panel"><h3>${label}</h3><strong>${esc(value)}</strong></section>`).join('')}</div>
     <section class="panel"><h3>通算</h3><p>購入 ${yen(totalStake)} · 払戻・返還 ${yen(totalPayout)} · 収支 ${totalPending?'未精算あり':yen(totalPayout-totalStake)}</p><p class="finance-note">${all.some(r=>r.unknownRefundGroups)?'返還未確認を含む申告ベース。':''} ${sum('hitGroups')}的中グループ / ${sum('groups')}購入グループ（選択期間）。レース数 ${rows.length}。</p></section>
     <section class="panel"><h3>レース別 · ${finance.keibaAll?'全期間':esc(finance.month)}</h3><div class="finance-table-wrap"><table class="finance-table"><thead><tr><th>開催日 / レース</th><th>購入</th><th>払戻 / 返還</th><th>収支 / 回収率</th><th>確認状態</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr><td>${esc(r.date)}<small>${esc(venues[r.venue]||r.venue)} ${esc(r.race)}R · ${esc(r.tickets)}点</small></td><td>${yen(r.stake)}</td><td>${yen(r.payout)}<small>返還 ${r.unknownRefundGroups?'未確認':yen(r.refund)}</small></td><td>${r.net===null?'未精算':yen(r.net)}<small>${r.returnRate===null?'—':r.returnRate.toFixed(1)+'%'}</small></td><td>${r.pendingGroups?'未精算あり':r.verification==='verified'?'照合済み':'本人申告'}${r.unknownRefundGroups?'<small>返還未確認</small>':''}</td></tr>`).join(''):`<tr><td colspan="5">${data?'この期間の購入記録はありません。':'競馬データは未同期です。メインPCからvaultを同期してください。'}</td></tr>`}</tbody></table></div></section>
-    <section class="panel"><h3>買い目の入力を減らす</h3><p>JRA投票照会の「通常投票」CSVをメインPCで取り込めます。保存前に件数と重複を確認します。手入力と同じレースがある場合は、照合するまで追加しません。</p><p>画像の場合は購入完了画面や馬券の写真を送ってください。読めない箇所を確認してから記録します。</p><a href="https://www.jra.go.jp/dento/tohyo/service.html" target="_blank" rel="noopener noreferrer">JRA投票照会（過去60日・当日21時以降更新）</a></section>`;
+    <section class="panel"><h3>開催日の振り返り</h3><p class="finance-note">17時、または「終了」の連絡時に全買い目を確認し、揃ってから分析します。購入漏れの確認中は暫定です。</p>${reviews.length?reviews.map(r=>`<details class="keiba-review"><summary>${esc(r.date)} · v${esc(r.version)} · ${r.purchaseCheck==='complete'?'全買い目確認済み':'全買い目の確認待ち（暫定）'}</summary><div class="md finance-table-wrap">${renderMd(r.text)}</div></details>`).join(''):'<p>この期間の振り返りはまだありません。保存後にRefreshしてください。公開版はメインPCでのvault同期後に閲覧できます。</p>'}</section>
+    <section class="panel"><h3>即PATの購入履歴</h3><p>JRA投票照会の「投票内容照会」から「通常投票」CSVをダウンロードし、メインPCで取り込みます。保存前に件数と重複を確認します。手入力と同じレースがある場合は、照合するまで追加しません。</p><p>当日分のCSVは21時以降に更新されます。17時や「終了」の時点では、全購入の完了画面で券種・組合せ・点数・各購入額を確認します。未受領や未精算があれば確定分析を待ちます。</p><a href="https://www.jra.go.jp/dento/tohyo/service.html" target="_blank" rel="noopener noreferrer">JRA投票照会（過去60日・当日21時以降更新）</a></section>`;
 }
 function renderFinance() {
   const el = $('#financeView');
